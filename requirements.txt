@@ -1,0 +1,21 @@
+# === Core API Framework ===
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+python-dotenv>=1.1.0
+
+# === HTTP Client ===
+httpx>=0.28.0
+
+# === Model Gateway (LLM Abstraction) ===
+litellm>=1.60.0
+
+# === Vector Database ===
+qdrant-client>=1.13.0
+
+# === Memory Layer ===
+mem0ai>=0.1.60
+
+# === Embedding support (for local embeddings via sentence-transformers) ===
+sentence-transformers>=3.4.0

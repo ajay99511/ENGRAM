@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PersonalAssist — Prototype Test</title>
+    <style>
+        :root {
+            --bg: #0f0f17;
+            --surface: #1a1a2e;
+            --surface-2: #252542;
+            --border: #333360;
+            --accent: #7c5cfc;
+            --accent-glow: rgba(124, 92, 252, 0.3);
+            --text: #e4e4ed;
+            --text-dim: #9595b0;
+            --success: #34d399;
+            --error: #f87171;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--accent), #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: var(--text-dim);
+            margin-bottom: 32px;
+            font-size: 0.9rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel h2 {
+            font-size: 1.1rem;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel h2 .icon { font-size: 1.3rem; }
+
+        .chat-area {
+            grid-column: span 2;
+        }
+
+        #chat-log {
+            background: var(--surface-2);
+            border-radius: 12px;
+            padding: 16px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .msg-user { color: #93c5fd; }
+        .msg-assistant { color: var(--text); }
+        .msg-system { color: var(--text-dim); font-style: italic; }
+
+        .input-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        input, textarea, select {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        input[type="text"], textarea { flex: 1; }
+
+        textarea { resize: vertical; min-height: 60px; }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.1s, box-shadow 0.2s;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px var(--accent-glow);
+        }
+
+        button:active { transform: translateY(0); }
+
+        .result {
+            background: var(--surface-2);
+            border-radius: 10px;
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 0.85rem;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-ok { background: rgba(52, 211, 153, 0.15); color: var(--success); }
+        .badge-err { background: rgba(248, 113, 113, 0.15); color: var(--error); }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        label {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+            .chat-area { grid-column: span 1; }
+        }
+    </style>
+</head>
+<body>
+    <h1>⚡ PersonalAssist Prototype</h1>
+    <p class="subtitle">End-to-end test: Chat · Memory · RAG · Agents</p>
+
+    <div class="grid">
+        <!-- Chat Panel -->
+        <div class="panel chat-area">
+            <h2><span class="icon">💬</span> Chat (Streaming)</h2>
+            <div id="chat-log"><span class="msg-system">Ready. Type a message below…</span></div>
+            <div class="input-row">
+                <select id="chat-model">
+                    <option value="local">Local (Ollama)</option>
+                    <option value="gemini">Gemini</option>
+                </select>
+                <select id="chat-mode">
+                    <option value="stream">Stream</option>
+                    <option value="smart">Smart (RAG)</option>
+                    <option value="basic">Basic</option>
+                </select>
+                <input type="text" id="chat-input" placeholder="Ask anything…" />
+                <button onclick="sendChat()">Send</button>
+            </div>
+        </div>
+
+        <!-- Memory Store -->
+        <div class="panel">
+            <h2><span class="icon">💾</span> Store Memory</h2>
+            <div class="form-group">
+                <label>Content</label>
+                <textarea id="mem-content" placeholder="e.g. I prefer Python for backend work"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="mem-type">
+                    <option value="PROFILE">Profile</option>
+                    <option value="PROJECT">Project</option>
+                    <option value="EPISODE">Episode</option>
+                    <option value="TASK_OUTCOME">Task Outcome</option>
+                </select>
+            </div>
+            <button onclick="storeMemory()">Store</button>
+            <div id="store-result" class="result" style="display:none"></div>
+        </div>
+
+        <!-- Memory Query -->
+        <div class="panel">
+            <h2><span class="icon">🔍</span> Query Memories</h2>
+            <div class="form-group">
+                <label>Search query</label>
+                <input type="text" id="mem-query" placeholder="e.g. What programming language do I like?" />
+            </div>
+            <button onclick="queryMemory()">Search</button>
+            <div id="query-result" class="result" style="display:none"></div>
+        </div>
+
+        <!-- Health -->
+        <div class="panel">
+            <h2><span class="icon">🏥</span> System Health</h2>
+            <button onclick="checkHealth()">Check All</button>
+            <div id="health-result" class="result" style="display:none"></div>
+        </div>
+
+        <!-- Agents -->
+        <div class="panel">
+            <h2><span class="icon">🤖</span> Agent (Planner)</h2>
+            <div class="form-group">
+                <label>Task to plan</label>
+                <input type="text" id="agent-input" placeholder="e.g. Build a personal website" />
+            </div>
+            <button onclick="runAgent()">Plan</button>
+            <div id="agent-result" class="result" style="display:none"></div>
+        </div>
+    </div>
+
+    <script>
+        const BASE = '';  // Same origin
+
+        // ── Chat ──────────────────────────────────────────
+        async function sendChat() {
+            const input = document.getElementById('chat-input');
+            const log = document.getElementById('chat-log');
+            const model = document.getElementById('chat-model').value;
+            const mode = document.getElementById('chat-mode').value;
+            const message = input.value.trim();
+            if (!message) return;
+
+            log.innerHTML += `\n<span class="msg-user">You: ${escHtml(message)}</span>\n`;
+            input.value = '';
+            scrollLog();
+
+            if (mode === 'stream') {
+                log.innerHTML += `<span class="msg-assistant">Assistant: `;
+                try {
+                    const resp = await fetch(`${BASE}/chat/stream`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({message, model}),
+                    });
+                    const reader = resp.body.getReader();
+                    const decoder = new TextDecoder();
+                    while (true) {
+                        const {done, value} = await reader.read();
+                        if (done) break;
+                        const text = decoder.decode(value);
+                        for (const line of text.split('\n')) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                if (data === '[DONE]') continue;
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.text) {
+                                        log.innerHTML += escHtml(parsed.text);
+                                        scrollLog();
+                                    }
+                                } catch {}
+                            }
+                        }
+                    }
+                } catch (e) {
+                    log.innerHTML += `<span class="msg-system">[Error: ${e.message}]</span>`;
+                }
+                log.innerHTML += `</span>`;
+            } else {
+                const endpoint = mode === 'smart' ? '/chat/smart' : '/chat';
+                try {
+                    const resp = await fetch(`${BASE}${endpoint}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({message, model}),
+                    });
+                    const data = await resp.json();
+                    const extra = data.memory_used ? ' 🧠' : '';
+                    log.innerHTML += `<span class="msg-assistant">Assistant${extra}: ${escHtml(data.response)}</span>`;
+                } catch (e) {
+                    log.innerHTML += `<span class="msg-system">[Error: ${e.message}]</span>`;
+                }
+            }
+            log.innerHTML += '\n';
+            scrollLog();
+        }
+
+        document.getElementById('chat-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+        });
+
+        // ── Memory Store ──────────────────────────────────
+        async function storeMemory() {
+            const content = document.getElementById('mem-content').value.trim();
+            const type = document.getElementById('mem-type').value;
+            const el = document.getElementById('store-result');
+            if (!content) return;
+
+            el.style.display = 'block';
+            el.textContent = 'Storing…';
+            try {
+                const resp = await fetch(`${BASE}/memory/store`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content, memory_type: type}),
+                });
+                const data = await resp.json();
+                el.innerHTML = `<span class="badge badge-ok">✓ Stored</span> ID: ${data.id || 'N/A'}`;
+                document.getElementById('mem-content').value = '';
+            } catch (e) {
+                el.innerHTML = `<span class="badge badge-err">✗ Error</span> ${e.message}`;
+            }
+        }
+
+        // ── Memory Query ──────────────────────────────────
+        async function queryMemory() {
+            const query = document.getElementById('mem-query').value.trim();
+            const el = document.getElementById('query-result');
+            if (!query) return;
+
+            el.style.display = 'block';
+            el.textContent = 'Searching…';
+            try {
+                const resp = await fetch(`${BASE}/memory/query`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({query}),
+                });
+                const data = await resp.json();
+                if (data.results && data.results.length) {
+                    el.innerHTML = data.results.map((r, i) =>
+                        `<b>${i+1}.</b> [${r.memory_type}] ${escHtml(r.content)}  <i style="color:var(--text-dim)">score: ${r.score.toFixed(3)}</i>`
+                    ).join('\n');
+                } else {
+                    el.textContent = 'No memories found.';
+                }
+            } catch (e) {
+                el.innerHTML = `<span class="badge badge-err">✗ Error</span> ${e.message}`;
+            }
+        }
+
+        // ── Health ────────────────────────────────────────
+        async function checkHealth() {
+            const el = document.getElementById('health-result');
+            el.style.display = 'block';
+            el.textContent = 'Checking…';
+
+            let lines = [];
+            // API health
+            try {
+                const r = await fetch(`${BASE}/health`);
+                const d = await r.json();
+                lines.push(`<span class="badge badge-ok">✓</span> API: ${d.status}`);
+            } catch (e) {
+                lines.push(`<span class="badge badge-err">✗</span> API: ${e.message}`);
+            }
+            // Memory health
+            try {
+                const r = await fetch(`${BASE}/memory/health`);
+                const d = await r.json();
+                const badge = d.qdrant === 'connected' ? 'badge-ok' : 'badge-err';
+                lines.push(`<span class="badge ${badge}">${d.qdrant === 'connected' ? '✓' : '✗'}</span> Qdrant: ${d.qdrant}`);
+                if (d.collections) lines.push(`   Collections: ${d.collections.join(', ')}`);
+            } catch (e) {
+                lines.push(`<span class="badge badge-err">✗</span> Qdrant: ${e.message}`);
+            }
+            el.innerHTML = lines.join('\n');
+        }
+
+        // ── Agent ─────────────────────────────────────────
+        async function runAgent() {
+            const input = document.getElementById('agent-input').value.trim();
+            const el = document.getElementById('agent-result');
+            if (!input) return;
+
+            el.style.display = 'block';
+            el.textContent = 'Planning…';
+            try {
+                const resp = await fetch(`${BASE}/agents/run`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: input}),
+                });
+                const data = await resp.json();
+                el.textContent = data.response || JSON.stringify(data);
+            } catch (e) {
+                el.innerHTML = `<span class="badge badge-err">✗ Error</span> ${e.message}`;
+            }
+        }
+
+        // ── Helpers ───────────────────────────────────────
+        function escHtml(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+        function scrollLog() {
+            const log = document.getElementById('chat-log');
+            log.scrollTop = log.scrollHeight;
+        }
+    </script>
+</body>
+</html>

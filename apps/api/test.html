@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <textarea id="q" rows="3" cols="60">What is the capital of France?</textarea>
+    <button onclick="ask()">Ask (Local)</button>
+    <div id="out" style="white-space:pre-wrap; font-family:monospace;"></div>
+    <script>
+        async function ask() {
+            const q = document.getElementById('q').value;
+            document.getElementById('out').textContent = '';
+
+            try {
+                const response = await fetch('/chat/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: q, model: "llama3.2" })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            document.getElementById('out').textContent += line.replace('data: ', '');
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Error connecting to stream:", err);
+                document.getElementById('out').textContent += "\nError: " + err.message;
+            }
+        }
+    </script>
+</body>
+
+</html>

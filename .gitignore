@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+apps/api/.venv/
+
+# Environment files (keep .env.example, ignore actual .env)
+.env
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Storage (local data, gitignored)
+storage/qdrant_data/
+storage/logs/
+
+# OS
+.DS_Store
+Thumbs.db
