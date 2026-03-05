@@ -162,14 +162,16 @@ def _recursive_split(
             if current.strip():
                 chunks.append(Chunk(text=current.strip(), chunk_index=0))
 
-            # Filter out tiny chunks
-            chunks = [c for c in chunks if len(c.text) >= MIN_CHUNK_CHARS]
-            if chunks:
-                return chunks
-
-    # Last resort: hard split by character count
+    # If we tried all separators and couldn't break it down cleanly, 
+    # we must fall back to a hard character split for the entire string.
     chunks = []
-    for i in range(0, len(text), chunk_size - overlap):
+    
+    # Simple hard split by chunk_size
+    step = chunk_size - overlap
+    if step <= 0:
+        step = chunk_size # Prevent infinite loops if overlap is misconfigured
+        
+    for i in range(0, len(text), step):
         chunk_text = text[i:i + chunk_size].strip()
         if chunk_text and len(chunk_text) >= MIN_CHUNK_CHARS:
             chunks.append(Chunk(text=chunk_text, chunk_index=0))
@@ -313,11 +315,23 @@ def _chunk_markdown(
     if sections and sections[0]["start_pos"] > 0:
         preamble = text[:sections[0]["start_pos"]].strip()
         if preamble and len(preamble) >= MIN_CHUNK_CHARS:
-            chunks.insert(0, Chunk(
-                text=preamble,
-                chunk_index=0,
-                metadata={"section_title": "preamble", "section_level": 0},
-            ))
+            if len(preamble) > chunk_size:
+                sub_doc = ParsedDocument(
+                    text=preamble,
+                    source_path=doc.source_path,
+                    file_type="text",
+                )
+                sub_chunks = _chunk_recursive(sub_doc, chunk_size, overlap_ratio)
+                # insert in reverse to keep order when inserting at 0
+                for sc in reversed(sub_chunks):
+                    sc.metadata.update({"section_title": "preamble", "section_level": 0})
+                    chunks.insert(0, sc)
+            else:
+                chunks.insert(0, Chunk(
+                    text=preamble,
+                    chunk_index=0,
+                    metadata={"section_title": "preamble", "section_level": 0},
+                ))
 
     return chunks
 

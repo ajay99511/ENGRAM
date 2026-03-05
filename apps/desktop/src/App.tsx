@@ -5,15 +5,17 @@ import ChatPage from "./pages/ChatPage";
 import MemoryPage from "./pages/MemoryPage";
 import ModelsPage from "./pages/ModelsPage";
 import AgentsPage from "./pages/AgentsPage";
+import IngestionPage from "./pages/IngestionPage";
 import { checkHealth } from "./lib/api";
 
-type Page = "chat" | "memory" | "models" | "agents";
+type Page = "chat" | "memory" | "models" | "agents" | "ingest";
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "💬" },
   { id: "memory", label: "Memory", icon: "🧠" },
   { id: "models", label: "Models", icon: "⚡" },
   { id: "agents", label: "Agents", icon: "🤖" },
+  { id: "ingest", label: "Ingestion", icon: "📥" },
 ];
 
 function App() {
@@ -46,6 +48,8 @@ function App() {
         return <ModelsPage />;
       case "agents":
         return <AgentsPage />;
+      case "ingest":
+        return <IngestionPage />;
     }
   };
 

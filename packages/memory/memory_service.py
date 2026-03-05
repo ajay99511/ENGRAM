@@ -216,15 +216,15 @@ async def build_context(
         doc_results = [
             r for r in qdrant_results
             if r.get("metadata", {}).get("content_type") == "document"
-            or r.get("metadata", {}).get("source_path")
+            or r.get("metadata", {}).get("source")
         ]
         if doc_results:
             lines = ["## Relevant Documents & Code\n"]
             for i, hit in enumerate(doc_results, 1):
                 meta = hit.get("metadata", {})
-                source = meta.get("source_path", "unknown")
+                source = meta.get("source", "unknown")
                 section = meta.get("section", meta.get("section_title", ""))
-                content = hit["content"][:500]  # Truncate for context window
+                content = hit["content"][:3000]  # Increased for better RAG
                 label = f"{source}"
                 if section:
                     label += f" → {section}"

@@ -16,6 +16,12 @@ export interface ChatResponse {
   memories_extracted?: Record<string, unknown>;
 }
 
+export interface IngestReport {
+  files_processed: number;
+  chunks_created: number;
+  errors: string[];
+}
+
 export interface ModelInfo {
   id: string;
   name: string;
@@ -74,6 +80,23 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 
 export async function checkHealth(): Promise<HealthResponse> {
   return api<HealthResponse>("/health");
+}
+
+// ── Ingestion ──────────────────────────────────────────────────────
+
+export async function ingestDocument(
+  path: string,
+  recursive: boolean = true,
+  globPatterns?: string[]
+): Promise<{ status: string; report: IngestReport }> {
+  return api("/ingest", {
+    method: "POST",
+    body: JSON.stringify({
+      path,
+      recursive,
+      glob_patterns: globPatterns,
+    }),
+  });
 }
 
 // ── Chat ───────────────────────────────────────────────────────────
