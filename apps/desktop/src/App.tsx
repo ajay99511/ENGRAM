@@ -6,9 +6,10 @@ import MemoryPage from "./pages/MemoryPage";
 import ModelsPage from "./pages/ModelsPage";
 import AgentsPage from "./pages/AgentsPage";
 import IngestionPage from "./pages/IngestionPage";
+import ToolsPage from "./pages/ToolsPage";
 import { checkHealth } from "./lib/api";
 
-type Page = "chat" | "memory" | "models" | "agents" | "ingest";
+type Page = "chat" | "memory" | "models" | "agents" | "ingest" | "tools";
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "💬" },
@@ -16,6 +17,7 @@ const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "models", label: "Models", icon: "⚡" },
   { id: "agents", label: "Agents", icon: "🤖" },
   { id: "ingest", label: "Ingestion", icon: "📥" },
+  { id: "tools", label: "Tools", icon: "🛠️" },
 ];
 
 function App() {
@@ -50,6 +52,8 @@ function App() {
         return <AgentsPage />;
       case "ingest":
         return <IngestionPage />;
+      case "tools":
+        return <ToolsPage />;
     }
   };
 

@@ -401,6 +401,164 @@ async def switch_model(req: ModelSwitchRequest):
         logger.error("Switch model error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+# ── Local Operations Tool Endpoints ─────────────────────────────────
+
+
+class ToolExecRequest(BaseModel):
+    command: str
+    cwd: Optional[str] = None
+    timeout: int = 30
+    force_approve: bool = False
+
+
+class FileReadRequest(BaseModel):
+    path: str
+    max_lines: Optional[int] = None
+
+
+class FileWriteRequest(BaseModel):
+    path: str
+    content: str
+
+
+class FileSearchRequest(BaseModel):
+    directory: str
+    pattern: str = "*"
+    recursive: bool = True
+    max_results: int = 50
+
+
+class GitRepoRequest(BaseModel):
+    repo_path: str
+    max_commits: int = 10
+
+
+class GitDiffRequest(BaseModel):
+    repo_path: str
+    staged: bool = False
+    file_path: Optional[str] = None
+
+
+@app.get("/tools/list")
+async def list_tools():
+    """List all available agent tools with their categories."""
+    from packages.agents.tools import TOOL_REGISTRY
+    return {
+        "tools": [
+            {
+                "name": name,
+                "category": info["category"],
+                "description": info["description"],
+            }
+            for name, info in TOOL_REGISTRY.items()
+        ],
+        "count": len(TOOL_REGISTRY),
+    }
+
+
+@app.post("/tools/fs/read")
+async def tool_read_file(req: FileReadRequest):
+    """Read a file's contents."""
+    from packages.tools.fs import read_file
+    result = await read_file(req.path, max_lines=req.max_lines)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/tools/fs/write")
+async def tool_write_file(req: FileWriteRequest):
+    """Write content to a file."""
+    from packages.tools.fs import write_file
+    result = await write_file(req.path, req.content)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/tools/fs/search")
+async def tool_find_files(req: FileSearchRequest):
+    """Search for files matching a pattern."""
+    from packages.tools.fs import find_files
+    result = await find_files(
+        req.directory, pattern=req.pattern,
+        recursive=req.recursive, max_results=req.max_results,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/tools/fs/list")
+async def tool_list_directory(req: FileReadRequest):
+    """List directory contents."""
+    from packages.tools.fs import list_directory
+    result = await list_directory(req.path)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/tools/git/status")
+async def tool_git_status(req: GitRepoRequest):
+    """Get git status for a repository."""
+    from packages.tools.repo import git_status
+    result = await git_status(req.repo_path)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/tools/git/log")
+async def tool_git_log(req: GitRepoRequest):
+    """Get recent commit history."""
+    from packages.tools.repo import git_log
+    result = await git_log(req.repo_path, max_commits=req.max_commits)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/tools/git/diff")
+async def tool_git_diff(req: GitDiffRequest):
+    """Get diff of changes."""
+    from packages.tools.repo import git_diff
+    result = await git_diff(req.repo_path, staged=req.staged, file_path=req.file_path)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/tools/git/summary")
+async def tool_repo_summary(req: GitRepoRequest):
+    """Generate a full repo summary (status + log + branches)."""
+    from packages.tools.repo import repo_summary
+    result = await repo_summary(req.repo_path)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/tools/exec")
+async def tool_exec_command(req: ToolExecRequest):
+    """Execute a command in a sandboxed subprocess."""
+    from packages.tools.exec import run_command
+    result = await run_command(
+        req.command, cwd=req.cwd, timeout=req.timeout,
+        force_approve=req.force_approve,
+    )
+    if result.get("blocked"):
+        raise HTTPException(status_code=403, detail=result["error"])
+    return result
+
+
+@app.post("/tools/exec/check")
+async def tool_check_command(req: ToolExecRequest):
+    """Check if a command is allowed, blocked, or requires approval."""
+    from packages.tools.exec import check_allowlist
+    return check_allowlist(req.command)
+
 # ── Static Test Pages ────────────────────────────────────────────────
 
 

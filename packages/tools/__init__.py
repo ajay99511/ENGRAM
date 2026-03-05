@@ -1,2 +1,2 @@
 # PersonalAssist Tools Package
-# Provides: parsers, chunker, ingest orchestrator
+# Provides: parsers, chunker, ingest orchestrator, fs, repo, exec
