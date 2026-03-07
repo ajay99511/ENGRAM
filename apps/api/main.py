@@ -12,6 +12,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from packages.shared.config import settings
 from packages.model_gateway.client import chat, chat_stream
@@ -24,10 +26,38 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── App Setup ────────────────────────────────────────────────────────
+
+scheduler = AsyncIOScheduler()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting up PersonalAssist API and Background Scheduler...")
+    
+    # Check for and restore P2P synced snapshots
+    try:
+        from packages.automation.sync import restore_latest_snapshots
+        await restore_latest_snapshots()
+    except Exception as e:
+        logger.error(f"Failed to restore P2P snapshots during boot: {e}")
+        
+    scheduler.start()
+    try:
+        from packages.automation.jobs import setup_jobs
+        setup_jobs(scheduler)
+    except Exception as e:
+        logger.error(f"Failed to setup background jobs: {e}")
+    yield
+    # Shutdown
+    logger.info("Shutting down PersonalAssist API...")
+    scheduler.shutdown()
+
+
 app = FastAPI(
     title="PersonalAssist API",
     version="0.2.0",
     description="AI-powered personal assistant with memory & multi-model support",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -76,6 +106,27 @@ class ForgetRequest(BaseModel):
 class ModelSwitchRequest(BaseModel):
     model: str
 
+
+class ContextReportRequest(BaseModel):
+    file_path: Optional[str] = None
+    selection: Optional[str] = None
+    terminal_error: Optional[str] = None
+    workspace: Optional[str] = None
+
+
+class WorkflowRunRequest(BaseModel):
+    nodes: list[dict]
+    edges: list[dict]
+
+class WorkflowSaveRequest(BaseModel):
+    name: str
+    nodes: list[dict]
+    edges: list[dict]
+
+
+# ── Global State ─────────────────────────────────────────────────────
+
+_ACTIVE_CONTEXT: dict = {}
 
 # ── Health ───────────────────────────────────────────────────────────
 
@@ -130,12 +181,17 @@ async def chat_smart(req: ChatRequest):
     context_prefix = ""
     memory_used = False
 
+    # ── Step 0: IDE / Active Context ─────────────────────────────
+    global _ACTIVE_CONTEXT
+    if _ACTIVE_CONTEXT:
+        context_prefix += f"USER'S ACTIVE CONTEXT (IDE/Terminal):\n{json.dumps(_ACTIVE_CONTEXT, indent=2)}\n\n"
+
     # ── Step 1: Build hybrid context (Mem0 + Qdrant RAG) ─────────
     try:
         from packages.memory.memory_service import build_context
-        context = await build_context(req.message, user_id="default")
-        if context:
-            context_prefix = context
+        rag_context = await build_context(req.message, user_id="default")
+        if rag_context:
+            context_prefix += "RETRIEVED KNOWLEDGE & MEMORIES:\n" + rag_context + "\n"
             memory_used = True
     except Exception as exc:
         logger.warning("Memory layer unavailable, proceeding without context: %s", exc)
@@ -334,9 +390,18 @@ async def agents_run(req: ChatRequest):
         from packages.agents.base_agent import PlannerAgent
         from packages.agents.crew import run_crew
         
+        # Inject context into the user message
+        augmented_message = req.message
+        global _ACTIVE_CONTEXT
+        if _ACTIVE_CONTEXT:
+            augmented_message = (
+                f"Active Context (IDE/Terminal):\n{json.dumps(_ACTIVE_CONTEXT, indent=2)}\n\n"
+                f"User Request:\n{req.message}"
+            )
+        
         # We will dispatch to the new lightweight crew orchestration.
         result = await run_crew(
-            user_message=req.message,
+            user_message=augmented_message,
             user_id="default",
             model=req.model,
         )
@@ -405,6 +470,65 @@ async def switch_model(req: ModelSwitchRequest):
         logger.error("Switch model error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+# ── Context Sensing Endpoints ────────────────────────────────────────
+
+@app.post("/context/report")
+async def report_context(req: ContextReportRequest):
+    """External tools (IDE plugins, terminal hooks) ping this to report user activity."""
+    global _ACTIVE_CONTEXT
+    _ACTIVE_CONTEXT = req.model_dump(exclude_none=True)
+    return {"status": "updated", "context": _ACTIVE_CONTEXT}
+
+@app.get("/context/active")
+async def get_active_context():
+    """Get the currently sensed context."""
+    return _ACTIVE_CONTEXT
+
+@app.post("/context/clear")
+async def clear_context():
+    global _ACTIVE_CONTEXT
+    _ACTIVE_CONTEXT = {}
+    return {"status": "cleared"}
+
+# ── Workflow Engine Endpoints (Phase J) ──────────────────────────────
+
+@app.post("/workflows/run")
+async def run_workflow(req: WorkflowRunRequest):
+    """Parses a visual graph (nodes/edges) and executes it sequentially."""
+    from packages.workflows.engine import WorkflowEngine
+    try:
+        engine = WorkflowEngine(nodes=req.nodes, edges=req.edges)
+        result = await engine.run()
+        return result
+    except Exception as exc:
+        logger.error(f"Workflow Run Error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.post("/workflows/save")
+async def save_workflow(req: WorkflowSaveRequest):
+    """Saves a workflow definition to a local file."""
+    try:
+        wf_dir = Path(settings.data_dir) / "workflows"
+        wf_dir.mkdir(parents=True, exist_ok=True)
+        file_path = wf_dir / f"{req.name}.json"
+        
+        with file_path.open("w") as f:
+            json.dump({"nodes": req.nodes, "edges": req.edges}, f, indent=2)
+            
+        return {"status": "saved", "path": str(file_path)}
+    except Exception as exc:
+        logger.error(f"Workflow Save Error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.get("/workflows/list")
+async def list_workflows():
+    """Returns a list of all saved workflows."""
+    wf_dir = Path(settings.data_dir) / "workflows"
+    if not wf_dir.exists():
+        return {"workflows": []}
+    files = [f.stem for f in wf_dir.glob("*.json")]
+    return {"workflows": files}
 
 # ── Local Operations Tool Endpoints ─────────────────────────────────
 
@@ -562,6 +686,42 @@ async def tool_check_command(req: ToolExecRequest):
     """Check if a command is allowed, blocked, or requires approval."""
     from packages.tools.exec import check_allowlist
     return check_allowlist(req.command)
+
+# ── Sync Hub Endpoints (Phase K) ─────────────────────────────────────
+
+@app.post("/sync/trigger")
+async def trigger_sync():
+    """Manually force an export of all Qdrant collections to snapshot files."""
+    try:
+        from packages.automation.sync import create_qdrant_snapshot
+        await create_qdrant_snapshot()
+        return {"status": "success", "message": "Snapshots exported successfully"}
+    except Exception as e:
+        logger.error(f"Sync trigger failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/sync/status")
+async def sync_status():
+    """Get the latest modification timestamp of the snapshot directory."""
+    try:
+        from pathlib import Path
+        from packages.shared.config import settings
+        snapshot_dir = Path(settings.data_dir) / "snapshots"
+        if not snapshot_dir.exists():
+            return {"last_sync": None, "snapshots": []}
+            
+        snaps = list(snapshot_dir.glob("*.snapshot"))
+        if not snaps:
+            return {"last_sync": None, "snapshots": []}
+            
+        latest = max(snaps, key=lambda p: p.stat().st_mtime)
+        return {
+            "last_sync": latest.stat().st_mtime * 1000, # Convert to ms for JS
+            "snapshots": [s.name for s in snaps]
+        }
+    except Exception as e:
+        logger.error(f"Sync status failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ── Static Test Pages ────────────────────────────────────────────────
 

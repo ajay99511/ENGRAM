@@ -15,6 +15,13 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
+    # --- Data Directory ---
+    data_dir: str = Field(
+        default=os.path.expanduser("~/.personalassist"),
+        alias="DATA_DIR",
+        description="Unified directory for all app data, snapshots, and workflows",
+    )
+
     # --- Model Configuration ---
     default_local_model: str = Field(
         default="ollama/llama3.2",
@@ -22,7 +29,7 @@ class Settings(BaseSettings):
         description="LiteLLM model identifier for local Ollama inference",
     )
     default_remote_model: str = Field(
-        default="gemini/gemini-2.0-flash",
+        default="gemini/gemini-2.5-flash-lite",
         alias="DEFAULT_REMOTE_MODEL",
         description="LiteLLM model identifier for remote inference",
     )
@@ -113,7 +120,10 @@ class Settings(BaseSettings):
         # Short aliases always resolve explicitly
         model_map = {
             "local": self.default_local_model,
-            "gemini": self.default_remote_model,
+            "gemini": "gemini/gemini-2.5-flash-lite",
+            "gemini-lite": "gemini/gemini-2.5-flash-lite",
+            "gemini-flash": "gemini/gemini-2.5-flash",
+            "gemini-pro": "gemini/gemini-2.5-pro",
             "claude": "anthropic/claude-sonnet-4-20250514",
         }
         if model_key in model_map:

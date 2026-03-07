@@ -45,7 +45,8 @@ export default function ModelsPage() {
     };
 
     const localModels = models.filter((m) => m.is_local);
-    const remoteModels = models.filter((m) => !m.is_local);
+    const geminiModels = models.filter((m) => !m.is_local && m.provider === 'gemini');
+    const otherRemote = models.filter((m) => !m.is_local && m.provider !== 'gemini');
 
     const renderModelCard = (m: ModelInfo) => {
         const isActive = m.id === activeModelId || m.is_active;
@@ -58,7 +59,10 @@ export default function ModelsPage() {
                 onClick={() => !isSwitching && handleSwitch(m.id)}
             >
                 <div className="model-card-header">
-                    <div className="model-name">{m.name || m.id}</div>
+                    <div className="model-name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {m.name || m.id}
+                        {m.is_recommended && <span title="Recommended for cost-efficiency" style={{ fontSize: '14px' }}>⭐</span>}
+                    </div>
                     <div style={{ display: "flex", gap: 6 }}>
                         {isActive && <span className="badge badge-success">Active</span>}
                         {m.is_local ? (
@@ -68,15 +72,43 @@ export default function ModelsPage() {
                         )}
                     </div>
                 </div>
+
+                {m.description && (
+                    <div className="model-detail" style={{ marginBottom: 8, color: 'var(--text-secondary)' }}>
+                        {m.description}
+                    </div>
+                )}
+
                 <div className="model-detail">
                     <strong>Provider:</strong> {m.provider}
                 </div>
-                <div className="model-detail">
-                    <strong>ID:</strong> {m.id}
-                </div>
-                {m.size_label && (
+
+                {m.context_window && (
                     <div className="model-detail">
-                        <strong>Size:</strong> {m.size_label}
+                        <strong>Context Window:</strong> {m.context_window}
+                    </div>
+                )}
+
+                {/* Pricing section if available */}
+                {(m.pricing_input || m.pricing_output) && (
+                    <div className="model-detail" style={{ display: 'flex', gap: '12px', marginTop: '6px' }}>
+                        {m.pricing_input && (
+                            <span className="badge" style={{ background: 'var(--bg-glass)' }}>
+                                IN: {m.pricing_input}
+                            </span>
+                        )}
+                        {m.pricing_output && (
+                            <span className="badge" style={{ background: 'var(--bg-glass)' }}>
+                                OUT: {m.pricing_output}
+                            </span>
+                        )}
+                    </div>
+                )}
+
+                {/* Ollama specific size metadata */}
+                {m.size_label && (
+                    <div className="model-detail" style={{ marginTop: '6px' }}>
+                        <strong>Disk Size:</strong> {m.size_label}
                     </div>
                 )}
                 {m.parameter_count && (
@@ -84,6 +116,18 @@ export default function ModelsPage() {
                         <strong>Parameters:</strong> {m.parameter_count}
                     </div>
                 )}
+
+                {/* API Key Status for remote models */}
+                {!m.is_local && (
+                    <div className="model-detail" style={{ marginTop: 8 }}>
+                        {m.api_key_set ? (
+                            <span className="badge badge-success" style={{ background: 'transparent', padding: 0 }}>✅ API Key Configured</span>
+                        ) : (
+                            <span className="badge badge-warning" style={{ background: 'transparent', padding: 0 }}>⚠️ Missing API Key</span>
+                        )}
+                    </div>
+                )}
+
                 {isSwitching && (
                     <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
                         <span className="spinner" />
@@ -178,8 +222,8 @@ export default function ModelsPage() {
                             </>
                         )}
 
-                        {/* Remote Models */}
-                        {remoteModels.length > 0 && (
+                        {/* Gemini Models */}
+                        {geminiModels.length > 0 && (
                             <>
                                 <h3
                                     style={{
@@ -191,10 +235,31 @@ export default function ModelsPage() {
                                         marginBottom: 12,
                                     }}
                                 >
-                                    ☁️ Remote Models
+                                    ☁️ Gemini Models
+                                </h3>
+                                <div className="models-grid" style={{ marginBottom: 24 }}>
+                                    {geminiModels.map(renderModelCard)}
+                                </div>
+                            </>
+                        )}
+
+                        {/* Other Remote Models */}
+                        {otherRemote.length > 0 && (
+                            <>
+                                <h3
+                                    style={{
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        color: "var(--text-muted)",
+                                        textTransform: "uppercase",
+                                        letterSpacing: 0.5,
+                                        marginBottom: 12,
+                                    }}
+                                >
+                                    🌐 Other Remote Models
                                 </h3>
                                 <div className="models-grid">
-                                    {remoteModels.map(renderModelCard)}
+                                    {otherRemote.map(renderModelCard)}
                                 </div>
                             </>
                         )}

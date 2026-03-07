@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import AsyncIterator
 
 import litellm
@@ -27,6 +28,14 @@ logger = logging.getLogger(__name__)
 # ── Configuration ────────────────────────────────────────────────────
 # Suppress litellm printing to stdout
 litellm.set_verbose = False
+
+# Pass API keys to LiteLLM via environment (LiteLLM reads these)
+if settings.gemini_api_key:
+    os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
+if settings.anthropic_api_key:
+    os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+if settings.openai_api_key:
+    os.environ["OPENAI_API_KEY"] = settings.openai_api_key
 
 
 async def chat(

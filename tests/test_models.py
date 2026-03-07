@@ -18,7 +18,7 @@ class TestStaticRemoteModels:
 
     def test_returns_two_remote_models(self):
         models = _static_remote_models()
-        assert len(models) == 2
+        assert len(models) == 5  # 4 Gemini models + 1 Claude
 
     def test_includes_gemini(self):
         models = _static_remote_models()
@@ -67,7 +67,8 @@ class TestResolveModelIntegration:
         assert settings.resolve_model("local") == settings.default_local_model
 
     def test_resolve_gemini(self):
-        assert settings.resolve_model("gemini") == settings.default_remote_model
+        # We explicitly resolve 'gemini' to 'gemini/gemini-2.5-flash-lite'
+        assert settings.resolve_model("gemini") == "gemini/gemini-2.5-flash-lite"
 
     def test_resolve_active_uses_registry(self):
         set_active_model("ollama/mistral:latest")

@@ -816,3 +816,72 @@ select.input {
   padding-bottom: 12px;
 }
 
+/* ── Markdown Body ── */
+.markdown-body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.markdown-body p {
+  margin-bottom: 12px;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body a {
+  color: var(--info);
+  text-decoration: none;
+}
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--bg-primary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.markdown-body pre {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.markdown-body pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--text-primary);
+}
+
+.markdown-body ul, .markdown-body ol {
+  padding-left: 20px;
+  margin-bottom: 12px;
+}
+
+.markdown-body li {
+  margin-bottom: 4px;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid var(--border-active);
+  padding-left: 12px;
+  color: var(--text-muted);
+  margin: 12px 0;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--text-primary);
+}

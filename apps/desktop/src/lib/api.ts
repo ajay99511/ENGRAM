@@ -30,6 +30,12 @@ export interface ModelInfo {
   is_active: boolean;
   size_label?: string;
   parameter_count?: string;
+  description?: string;
+  context_window?: string;
+  pricing_input?: string;
+  pricing_output?: string;
+  is_recommended?: boolean;
+  api_key_set?: boolean;
 }
 
 export interface Memory {
@@ -526,3 +532,52 @@ export async function* streamPodcastProgress(
   }
 }
 
+// ── Workflows (Phase J) ──────────────────────────────────────────────
+
+export interface WorkflowRunRequest {
+  nodes: any[];
+  edges: any[];
+}
+
+export async function runWorkflow(req: WorkflowRunRequest): Promise<any> {
+  return api("/workflows/run", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+export async function saveWorkflow(name: string, nodes: any[], edges: any[]): Promise<any> {
+  return api("/workflows/save", {
+    method: "POST",
+    body: JSON.stringify({ name, nodes, edges }),
+  });
+}
+
+export async function listWorkflows(): Promise<{ workflows: string[] }> {
+  return api("/workflows/list");
+}
+
+// ── Context Sensing (Phase I) ────────────────────────────────────────
+
+export async function getActiveContext(): Promise<any> {
+  return api("/context/active");
+}
+
+export async function clearActiveContext(): Promise<any> {
+  return api("/context/clear", { method: "POST" });
+}
+
+// ── Sync Hub (Phase K) ──────────────────────────────────────────────
+
+export interface SyncStatus {
+  last_sync: number | null;
+  snapshots: string[];
+}
+
+export async function triggerSync(): Promise<{ status: string; message: string }> {
+  return api("/sync/trigger", { method: "POST" });
+}
+
+export async function getSyncStatus(): Promise<SyncStatus> {
+  return api("/sync/status");
+}

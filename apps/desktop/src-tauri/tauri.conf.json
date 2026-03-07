@@ -13,12 +13,26 @@
     "windows": [
       {
         "title": "PersonalAssist",
+        "label": "main",
         "width": 1200,
         "height": 800,
         "center": true,
         "resizable": true,
         "minWidth": 800,
         "minHeight": 600
+      },
+      {
+        "title": "Spotlight",
+        "label": "spotlight",
+        "url": "?spotlight=true",
+        "width": 750,
+        "height": 450,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
       }
     ],
     "security": {

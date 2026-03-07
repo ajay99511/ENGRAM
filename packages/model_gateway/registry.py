@@ -37,6 +37,13 @@ class ModelInfo(BaseModel):
     is_active: bool = False
     is_embedding: bool = False         # True for embedding-only models
     modified_at: str | None = None
+    # Extended metadata
+    description: str | None = None
+    context_window: str | None = None  # e.g. "1M tokens"
+    pricing_input: str | None = None   # e.g. "$0.10 / 1M"
+    pricing_output: str | None = None  # e.g. "$0.40 / 1M"
+    is_recommended: bool = False
+    api_key_set: bool = True           # Whether required API key is configured
 
 
 # ── Active model state ───────────────────────────────────────────────
@@ -116,6 +123,57 @@ async def list_ollama_models() -> list[ModelInfo]:
 
 # ── Static remote models ─────────────────────────────────────────────
 
+# Gemini model catalog — ordered by cost efficiency
+_GEMINI_MODELS = [
+    {
+        "id": "gemini/gemini-2.5-flash-lite",
+        "name": "Gemini 2.5 Flash-Lite",
+        "description": "Most cost-efficient. Great for everyday chat and high-volume tasks.",
+        "context_window": "1M tokens",
+        "pricing_input": "$0.10 / 1M",
+        "pricing_output": "$0.40 / 1M",
+        "is_recommended": True,
+    },
+    {
+        "id": "gemini/gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "description": "Fast and capable. Ideal for RAG, search, and general queries.",
+        "context_window": "1M tokens",
+        "pricing_input": "$0.30 / 1M",
+        "pricing_output": "$2.50 / 1M",
+        "is_recommended": True,
+    },
+    {
+        "id": "gemini/gemini-2.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "description": "Top-tier reasoning and coding. Use for complex problem-solving.",
+        "context_window": "1M tokens",
+        "pricing_input": "$1.25 / 1M",
+        "pricing_output": "$10.00 / 1M",
+        "is_recommended": False,
+    },
+    {
+        "id": "gemini/gemini-2.0-flash",
+        "name": "Gemini 2.0 Flash",
+        "description": "Previous-gen fallback. Reliable and low-cost.",
+        "context_window": "1M tokens",
+        "pricing_input": "$0.10 / 1M",
+        "pricing_output": "$0.40 / 1M",
+        "is_recommended": False,
+    },
+]
+
+
+def _check_api_key(provider: str) -> bool:
+    """Check if the API key for a provider is configured."""
+    key_map = {
+        "gemini": settings.gemini_api_key,
+        "anthropic": settings.anthropic_api_key,
+        "openai": settings.openai_api_key,
+    }
+    key = key_map.get(provider, "")
+    return bool(key and key.strip())
+
 
 def _static_remote_models() -> list[ModelInfo]:
     """
@@ -125,24 +183,35 @@ def _static_remote_models() -> list[ModelInfo]:
     active = get_active_model()
     remotes: list[ModelInfo] = []
 
-    # Gemini
-    gemini_model = settings.default_remote_model
-    remotes.append(ModelInfo(
-        id=gemini_model,
-        name=gemini_model.replace("gemini/", ""),
-        provider="gemini",
-        is_local=False,
-        is_active=(gemini_model == active),
-    ))
+    # Gemini models
+    gemini_key_set = _check_api_key("gemini")
+    for gm in _GEMINI_MODELS:
+        remotes.append(ModelInfo(
+            id=gm["id"],
+            name=gm["name"],
+            provider="gemini",
+            is_local=False,
+            is_active=(gm["id"] == active),
+            description=gm["description"],
+            context_window=gm["context_window"],
+            pricing_input=gm["pricing_input"],
+            pricing_output=gm["pricing_output"],
+            is_recommended=gm["is_recommended"],
+            api_key_set=gemini_key_set,
+        ))
 
     # Claude
     claude_id = "anthropic/claude-sonnet-4-20250514"
     remotes.append(ModelInfo(
         id=claude_id,
-        name="claude-sonnet-4-20250514",
+        name="Claude Sonnet 4",
         provider="anthropic",
         is_local=False,
         is_active=(claude_id == active),
+        description="Anthropic's flagship. Strong at writing and analysis.",
+        pricing_input="$3.00 / 1M",
+        pricing_output="$15.00 / 1M",
+        api_key_set=_check_api_key("anthropic"),
     ))
 
     return remotes
