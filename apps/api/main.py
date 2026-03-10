@@ -5,14 +5,15 @@ Routes: health, chat (plain/stream/smart), memory, ingest, agents
 
 import json
 import logging
+import re
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -86,6 +87,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_PUBLIC_PATHS = {"/health", "/test", "/prototype", "/docs", "/redoc", "/openapi.json"}
+
+
+@app.middleware("http")
+async def enforce_api_access_token(request: Request, call_next):
+    if not settings.api_access_token or request.url.path in _PUBLIC_PATHS:
+        return await call_next(request)
+
+    token = request.headers.get("x-api-token", "")
+    if token != settings.api_access_token:
+        return JSONResponse(status_code=401, content={"detail": "Invalid API token"})
+
+    return await call_next(request)
+
 
 # ── Podcast Router (isolated sub-router) ─────────────────────────────
 from apps.api.podcast_router import podcast_router
@@ -170,6 +186,58 @@ async def _resolve_or_create_thread(session, thread_id: Optional[str], message: 
 
 def _touch_thread(thread) -> None:
     thread.updated_at = datetime.now(timezone.utc)
+
+
+def _clip_text(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    return text[: limit - 3].rstrip() + "..."
+
+
+async def _build_thread_messages(session, thread_id: str, system_context: str = "") -> list[dict[str, str]]:
+    from sqlalchemy import select
+    from packages.memory.models import ChatMessage
+
+    result = await session.execute(
+        select(ChatMessage)
+        .where(ChatMessage.thread_id == thread_id)
+        .order_by(ChatMessage.timestamp.desc())
+        .limit(settings.chat_history_max_messages)
+    )
+    recent_messages = result.scalars().all()
+
+    selected: list[dict[str, str]] = []
+    used_chars = 0
+    budget = max(settings.chat_history_char_budget, 1000)
+
+    for item in recent_messages:
+        role = item.role if item.role in {"user", "assistant", "system"} else "user"
+        content_limit = 1600 if role == "user" else 2200
+        content = _clip_text(item.content, content_limit)
+        if not content:
+            continue
+        if selected and used_chars + len(content) > budget:
+            break
+        selected.append({"role": role, "content": content})
+        used_chars += len(content)
+
+    messages = list(reversed(selected))
+    if system_context:
+        messages.insert(
+            0,
+            {
+                "role": "system",
+                "content": _clip_text(system_context, settings.rag_context_char_budget),
+            },
+        )
+    return messages
+
+
 # ── Health ───────────────────────────────────────────────────────────
 
 
@@ -199,8 +267,7 @@ async def chat_endpoint(req: ChatRequest):
         _touch_thread(thread)
         session.add(user_msg)
         await session.commit()
-
-    messages = [{"role": "user", "content": req.message}]
+        messages = await _build_thread_messages(session, req.thread_id)
 
     try:
         response = await chat(messages, model=req.model, temperature=req.temperature)
@@ -246,8 +313,7 @@ async def chat_stream_endpoint(req: ChatRequest):
         _touch_thread(thread)
         session.add(user_msg)
         await session.commit()
-
-    messages = [{"role": "user", "content": req.message}]
+        messages = await _build_thread_messages(session, req.thread_id)
 
     async def generate():
         full_response = ""
@@ -297,34 +363,31 @@ async def chat_smart(req: ChatRequest):
         session.add(user_msg)
         await session.commit()
 
-    messages = [{"role": "user", "content": req.message}]
     context_prefix = ""
     memory_used = False
 
     global _ACTIVE_CONTEXT
     if _ACTIVE_CONTEXT:
-        context_prefix += f"USER'S ACTIVE CONTEXT (IDE/Terminal):\n{json.dumps(_ACTIVE_CONTEXT, indent=2)}\n\n"
+        context_prefix += _clip_text(
+            f"USER'S ACTIVE CONTEXT (IDE/Terminal):\n{json.dumps(_ACTIVE_CONTEXT, indent=2)}\n\n",
+            settings.rag_context_char_budget,
+        )
 
     try:
         from packages.memory.memory_service import build_context
 
         rag_context = await build_context(req.message, user_id="default")
         if rag_context:
-            context_prefix += "RETRIEVED KNOWLEDGE & MEMORIES:\n" + rag_context + "\n"
+            context_prefix += "RETRIEVED KNOWLEDGE AND MEMORIES:\n" + rag_context + "\n"
             memory_used = True
     except Exception as exc:
         logger.warning("Memory layer unavailable, proceeding without context: %s", exc)
 
-    if context_prefix:
-        augmented_messages = [
-            {"role": "system", "content": context_prefix},
-            {"role": "user", "content": req.message},
-        ]
-    else:
-        augmented_messages = messages
+    async with AsyncSessionLocal() as session:
+        messages = await _build_thread_messages(session, req.thread_id, system_context=context_prefix)
 
     try:
-        response = await chat(augmented_messages, model=req.model, temperature=req.temperature)
+        response = await chat(messages, model=req.model, temperature=req.temperature)
     except Exception as exc:
         logger.error("Smart chat error: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc))
@@ -346,7 +409,7 @@ async def chat_smart(req: ChatRequest):
     extraction_result = {}
     try:
         from packages.memory.memory_service import extract_and_store_from_turn
-        from packages.memory.consolidation import increment_turn, should_consolidate, consolidate_memories
+        from packages.memory.consolidation import consolidate_memories, increment_turn, should_consolidate
 
         turn_messages = [
             {"role": "user", "content": req.message},
@@ -361,6 +424,7 @@ async def chat_smart(req: ChatRequest):
         if should_consolidate(user_id="default"):
             logger.info("Turn threshold reached, triggering memory consolidation")
             import asyncio
+
             asyncio.create_task(consolidate_memories(user_id="default", model=req.model))
 
     except Exception as exc:
@@ -701,6 +765,14 @@ async def clear_context():
     _ACTIVE_CONTEXT = {}
     return {"status": "cleared"}
 
+
+def _sanitize_workflow_name(name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", (name or "").strip())
+    cleaned = cleaned.strip("._-")
+    if not cleaned:
+        raise ValueError("Workflow name must include letters or numbers.")
+    return cleaned[:80]
+
 # ── Workflow Engine Endpoints (Phase J) ──────────────────────────────
 
 @app.post("/workflows/run")
@@ -719,13 +791,17 @@ async def run_workflow(req: WorkflowRunRequest):
 async def save_workflow(req: WorkflowSaveRequest):
     """Saves a workflow definition to a local file."""
     try:
-        wf_dir = Path(settings.data_dir) / "workflows"
+        wf_dir = (Path(settings.data_dir) / "workflows").resolve()
         wf_dir.mkdir(parents=True, exist_ok=True)
-        file_path = wf_dir / f"{req.name}.json"
-        
+
+        safe_name = _sanitize_workflow_name(req.name)
+        file_path = (wf_dir / f"{safe_name}.json").resolve()
+        if file_path.parent != wf_dir:
+            raise ValueError("Invalid workflow name.")
+
         with file_path.open("w") as f:
             json.dump({"nodes": req.nodes, "edges": req.edges}, f, indent=2)
-            
+
         return {"status": "saved", "path": str(file_path)}
     except Exception as exc:
         logger.error(f"Workflow Save Error: {exc}")
@@ -957,6 +1033,10 @@ async def serve_test_page():
 async def serve_prototype():
     """Serve the full prototype test page."""
     return FileResponse(_STATIC_DIR / "test_prototype.html")
+
+
+
+
 
 
 

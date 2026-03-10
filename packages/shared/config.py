@@ -35,10 +35,15 @@ class Settings(BaseSettings):
         description="LiteLLM model identifier for remote inference",
     )
 
-    # --- API Keys (optional) ---
+    # --- API Keys / Access Control ---
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    api_access_token: str = Field(
+        default="",
+        alias="API_ACCESS_TOKEN",
+        description="Optional shared token for local desktop-to-API requests",
+    )
 
     # --- Ollama ---
     ollama_api_base: str = Field(
@@ -72,6 +77,43 @@ class Settings(BaseSettings):
         default="nomic-embed-text",
         alias="EMBEDDING_MODEL",
         description="Ollama embedding model for vector generation",
+    )
+
+    # --- Prompt / Context Budgets ---
+    rag_context_char_budget: int = Field(
+        default=3200,
+        alias="RAG_CONTEXT_CHAR_BUDGET",
+        description="Maximum characters returned by hybrid memory/document context assembly",
+    )
+    rag_doc_snippet_chars: int = Field(
+        default=500,
+        alias="RAG_DOC_SNIPPET_CHARS",
+        description="Maximum characters per document snippet included in RAG context",
+    )
+    rag_memory_limit: int = Field(
+        default=4,
+        alias="RAG_MEMORY_LIMIT",
+        description="Maximum number of memory facts included in assembled context",
+    )
+    chat_history_max_messages: int = Field(
+        default=10,
+        alias="CHAT_HISTORY_MAX_MESSAGES",
+        description="Maximum recent thread messages sent back to the model",
+    )
+    chat_history_char_budget: int = Field(
+        default=6000,
+        alias="CHAT_HISTORY_CHAR_BUDGET",
+        description="Maximum combined characters from recent thread history",
+    )
+    agent_context_char_budget: int = Field(
+        default=4000,
+        alias="AGENT_CONTEXT_CHAR_BUDGET",
+        description="Maximum characters of retrieved context passed into agent stages",
+    )
+    workflow_context_char_budget: int = Field(
+        default=2500,
+        alias="WORKFLOW_CONTEXT_CHAR_BUDGET",
+        description="Maximum serialized workflow context passed between nodes",
     )
 
     # --- Podcast Agent ---
@@ -119,7 +161,6 @@ class Settings(BaseSettings):
 
         Priority: short alias -> runtime active model -> raw model string.
         """
-        # Short aliases always resolve explicitly
         model_map = {
             "local": self.default_local_model,
             "gemini": "gemini/gemini-2.5-flash-lite",
@@ -131,17 +172,15 @@ class Settings(BaseSettings):
         if model_key in model_map:
             return model_map[model_key]
 
-        # If "active" is passed, resolve from the registry
         if model_key == "active":
             try:
                 from packages.model_gateway.registry import get_active_model
+
                 return get_active_model()
             except ImportError:
                 return self.default_local_model
 
-        # Otherwise treat as a raw LiteLLM model string
         return model_key
 
 
-# Singleton instance - import this everywhere
 settings = Settings()

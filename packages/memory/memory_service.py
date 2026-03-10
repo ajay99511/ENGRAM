@@ -1,14 +1,14 @@
 """
-Memory Service — high-level API for storing and querying memories.
+Memory Service - high-level API for storing and querying memories.
 
-Sits on top of both qdrant_store (document RAG) AND mem0_client
+Sits on top of both qdrant_store (document RAG) and mem0_client
 (user-centric intelligent memory) to provide:
-  - store_memory()              → embed + persist to Qdrant
-  - query_memories()            → semantic search over Qdrant
-  - build_context()             → hybrid assembly (Qdrant docs + Mem0 facts)
-  - extract_and_store_from_turn → auto-learn from conversation via Mem0
-  - get_all_user_memories()     → transparent view into Mem0 memories
-  - forget_memory()             → delete a specific Mem0 memory
+  - store_memory()              -> embed + persist to Qdrant
+  - query_memories()            -> semantic search over Qdrant
+  - build_context()             -> hybrid assembly (Qdrant docs + Mem0 facts)
+  - extract_and_store_from_turn -> auto-learn from conversation via Mem0
+  - get_all_user_memories()     -> transparent view into Mem0 memories
+  - forget_memory()             -> delete a specific Mem0 memory
 """
 
 from __future__ import annotations
@@ -16,12 +16,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from packages.memory.schemas import MemoryItem, MemorySearchResult, MemoryType
 from packages.memory import qdrant_store
+from packages.memory.schemas import MemoryItem, MemorySearchResult, MemoryType
+from packages.shared.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Ensure collections exist on first import
 _initialized = False
 
 
@@ -36,7 +36,37 @@ async def _ensure_init() -> None:
             raise
 
 
-# ── Qdrant-based Memory (Document RAG) ──────────────────────────────
+def _clip_text(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _fit_section(sections: list[str], candidate: str, budget: int) -> bool:
+    if not candidate.strip():
+        return False
+
+    current = "\n\n".join(sections)
+    remaining = budget - len(current)
+    if remaining <= 0:
+        return False
+
+    if sections:
+        remaining -= 2
+    if remaining <= 0:
+        return False
+
+    clipped = _clip_text(candidate, remaining)
+    if not clipped.strip():
+        return False
+
+    sections.append(clipped)
+    return True
 
 
 async def store_memory(
@@ -89,7 +119,6 @@ async def query_memories(
 
     raw_results = await qdrant_store.search(query=query, k=k)
 
-    # Filter by user_id and map to response format
     results = []
     for hit in raw_results:
         meta = hit.get("metadata", {})
@@ -107,34 +136,21 @@ async def query_memories(
     return results
 
 
-# ── Mem0-based Memory (User-Centric Intelligence) ───────────────────
-
-
 async def extract_and_store_from_turn(
     messages: list[dict[str, str]],
     user_id: str = "default",
 ) -> dict[str, Any]:
     """
     Auto-extract facts from a conversation turn via Mem0.
-
-    Mem0 internally decides what's worth remembering:
-    - Deduplicates against existing memories
-    - Merges conflicting facts
-    - Categorizes automatically
-
-    Args:
-        messages: The conversation exchange (user + assistant).
-        user_id:  Owner of these memories.
-
-    Returns:
-        Extraction result from Mem0 (new memories added/updated).
     """
     try:
         from packages.memory.mem0_client import mem0_add
+
         result = mem0_add(messages, user_id=user_id)
         logger.info(
             "Extracted memories from turn for user=%s: %s",
-            user_id, result,
+            user_id,
+            result,
         )
         return result if isinstance(result, dict) else {"result": result}
     except Exception as exc:
@@ -146,13 +162,11 @@ async def get_all_user_memories(
     user_id: str = "default",
 ) -> list[dict[str, Any]]:
     """
-    Get all Mem0 memories for a user (for transparency & debugging).
-
-    Returns:
-        List of all stored Mem0 memory dicts.
+    Get all Mem0 memories for a user (for transparency and debugging).
     """
     try:
         from packages.memory.mem0_client import mem0_get_all
+
         return mem0_get_all(user_id=user_id)
     except Exception as exc:
         logger.warning("Could not retrieve Mem0 memories: %s", exc)
@@ -162,20 +176,15 @@ async def get_all_user_memories(
 async def forget_memory(memory_id: str) -> dict[str, Any]:
     """
     Delete a specific Mem0 memory by ID.
-
-    Returns:
-        Deletion result.
     """
     try:
         from packages.memory.mem0_client import mem0_delete
+
         result = mem0_delete(memory_id)
         return {"status": "deleted", "memory_id": memory_id, "result": result}
     except Exception as exc:
         logger.error("Failed to delete memory %s: %s", memory_id, exc)
         return {"status": "error", "error": str(exc)}
-
-
-# ── Hybrid Context Assembly ──────────────────────────────────────────
 
 
 async def build_context(
@@ -184,78 +193,85 @@ async def build_context(
     k: int = 5,
 ) -> str:
     """
-    Build a hybrid context string from both Qdrant RAG and Mem0 memories.
-
-    Combines:
-      1. User profile & preference facts from Mem0
-      2. Relevant document/code chunks from Qdrant
-
-    Returns:
-        A system-prompt-style string, or empty string if nothing found.
+    Build a compact hybrid context string from both Qdrant RAG and Mem0 memories.
     """
-    sections = []
+    total_budget = max(settings.rag_context_char_budget, 400)
+    sections: list[str] = []
 
-    # ── Section 1: Mem0 user memories (preferences, facts) ───────
     try:
         from packages.memory.mem0_client import mem0_search
-        mem0_results = mem0_search(user_message, user_id=user_id, limit=k)
-        if mem0_results:
-            lines = ["## What I Know About You\n"]
-            for i, mem in enumerate(mem0_results, 1):
-                memory_text = mem.get("memory", mem.get("content", ""))
-                if memory_text:
-                    lines.append(f"  {i}. {memory_text}")
-            sections.append("\n".join(lines))
+
+        mem0_results = mem0_search(
+            user_message,
+            user_id=user_id,
+            limit=min(k, settings.rag_memory_limit),
+        )
+        memory_lines = []
+        for i, mem in enumerate(mem0_results[: settings.rag_memory_limit], 1):
+            memory_text = mem.get("memory", mem.get("content", ""))
+            clipped = _clip_text(memory_text, 220)
+            if clipped:
+                memory_lines.append(f"  {i}. {clipped}")
+        if memory_lines:
+            _fit_section(
+                sections,
+                "## What I Know About You\n" + "\n".join(memory_lines),
+                total_budget,
+            )
     except Exception as exc:
         logger.debug("Mem0 context unavailable: %s", exc)
 
-    # ── Section 2: Qdrant document/code RAG ──────────────────────
     try:
         qdrant_results = await qdrant_store.search(query=user_message, k=k)
-        # Filter for document content (not user memories stored directly)
         doc_results = [
             r for r in qdrant_results
             if r.get("metadata", {}).get("content_type") == "document"
             or r.get("metadata", {}).get("source")
+            or r.get("metadata", {}).get("source_path")
         ]
-        if doc_results:
-            lines = ["## Relevant Documents & Code\n"]
-            for i, hit in enumerate(doc_results, 1):
-                meta = hit.get("metadata", {})
-                source = meta.get("source", "unknown")
-                section = meta.get("section", meta.get("section_title", ""))
-                content = hit["content"][:3000]  # Increased for better RAG
-                label = f"{source}"
-                if section:
-                    label += f" → {section}"
-                lines.append(f"  {i}. [{label}]\n     {content}")
-            sections.append("\n".join(lines))
+        doc_lines = []
+        for i, hit in enumerate(doc_results[:3], 1):
+            meta = hit.get("metadata", {})
+            source = meta.get("source") or meta.get("source_path") or "unknown"
+            section = meta.get("section", meta.get("section_title", ""))
+            content = _clip_text(hit.get("content", ""), settings.rag_doc_snippet_chars)
+            if not content:
+                continue
+            label = source
+            if section:
+                label += f" -> {section}"
+            doc_lines.append(f"  {i}. [{label}] {content}")
+        if doc_lines:
+            _fit_section(
+                sections,
+                "## Relevant Documents and Code\n" + "\n".join(doc_lines),
+                total_budget,
+            )
     except Exception as exc:
         logger.debug("Qdrant context unavailable: %s", exc)
 
-    # ── Section 3: Direct Qdrant user memories (legacy) ──────────
-    try:
-        legacy_results = await query_memories(
-            user_id=user_id, query=user_message, k=3,
-        )
-        # Only include legacy memories not already covered by Mem0
-        if legacy_results and not sections:
-            lines = ["## Previous Interactions\n"]
-            for i, mem in enumerate(legacy_results, 1):
-                lines.append(
-                    f"  {i}. [{mem['memory_type']}] {mem['content']}"
+    if not sections:
+        try:
+            legacy_results = await query_memories(user_id=user_id, query=user_message, k=3)
+            legacy_lines = []
+            for i, mem in enumerate(legacy_results[:3], 1):
+                clipped = _clip_text(mem["content"], 220)
+                if clipped:
+                    legacy_lines.append(f"  {i}. [{mem['memory_type']}] {clipped}")
+            if legacy_lines:
+                _fit_section(
+                    sections,
+                    "## Previous Interactions\n" + "\n".join(legacy_lines),
+                    total_budget,
                 )
-            sections.append("\n".join(lines))
-    except Exception as exc:
-        logger.debug("Legacy memory context unavailable: %s", exc)
+        except Exception as exc:
+            logger.debug("Legacy memory context unavailable: %s", exc)
 
     if not sections:
         return ""
 
-    # Assemble final context
     header = (
-        "Use the following context to personalize your response. "
-        "Reference specific facts when relevant, but don't repeat "
-        "them verbatim unless asked.\n\n"
+        "Use this context to personalize the response. "
+        "Reference relevant facts briefly and only when they materially help."
     )
-    return header + "\n\n".join(sections)
+    return _clip_text(header + "\n\n" + "\n\n".join(sections), total_budget)

@@ -2,10 +2,28 @@
  * PersonalAssist API Client
  *
  * Type-safe HTTP client for all PersonalAssist backend endpoints.
- * Connects to the FastAPI server at localhost:13420.
+ * Uses environment overrides when available and keeps the current desktop
+ * default of localhost:8000 for compatibility.
  */
 
-const API_BASE = "http://127.0.0.1:13420";
+const DEFAULT_API_BASE = "http://127.0.0.1:8000";
+
+function resolveApiBase(): string {
+  const explicitBase = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (explicitBase) {
+    return explicitBase.replace(/\/$/, "");
+  }
+
+  const explicitPort = import.meta.env.VITE_API_PORT?.trim();
+  if (explicitPort) {
+    return `http://127.0.0.1:${explicitPort}`;
+  }
+
+  return DEFAULT_API_BASE;
+}
+
+const API_BASE = resolveApiBase();
+const API_TOKEN = import.meta.env.VITE_API_ACCESS_TOKEN?.trim() || "";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -98,12 +116,159 @@ export interface HealthResponse {
   version: string;
 }
 
+export interface ToolInfo {
+  name: string;
+  category: string;
+  description: string;
+}
+
+export interface FileResult {
+  path: string;
+  content?: string;
+  size_bytes?: number;
+  line_count?: number;
+  truncated?: boolean;
+  error?: string;
+}
+
+export interface FileSearchResult {
+  directory: string;
+  pattern: string;
+  matches: Array<{
+    path: string;
+    name: string;
+    extension: string;
+    size_bytes?: number;
+    modified?: string;
+  }>;
+  total_found: number;
+  truncated: boolean;
+}
+
+export interface DirEntry {
+  name: string;
+  type: "file" | "directory";
+  size_bytes?: number;
+  modified?: string;
+  child_count?: number;
+}
+
+export interface DirListResult {
+  path: string;
+  items: DirEntry[];
+  total_items: number;
+}
+
+export interface GitStatusResult {
+  repo_path: string;
+  branch: string;
+  modified: string[];
+  staged: string[];
+  untracked: string[];
+  clean: boolean;
+}
+
+export interface GitLogResult {
+  repo_path: string;
+  commits: Array<{ hash: string; message: string; author?: string; date?: string }>;
+  count: number;
+}
+
+export interface GitDiffResult {
+  repo_path: string;
+  staged: boolean;
+  stat: string;
+  diff: string;
+  files_changed: number;
+}
+
+export interface RepoSummaryResult {
+  repo_path: string;
+  status: GitStatusResult;
+  recent_commits: Array<{ hash: string; message: string }>;
+  branches: { current: string; local: string[]; remote: string[] };
+}
+
+export interface CommandResult {
+  command: string;
+  stdout?: string;
+  stderr?: string;
+  returncode?: number;
+  success: boolean;
+  timed_out?: boolean;
+  blocked?: boolean;
+  status?: string;
+  message?: string;
+  error?: string;
+}
+
+export interface CommandCheckResult {
+  command: string;
+  allowed: boolean;
+  blocked: boolean;
+  requires_approval: boolean;
+}
+
+export interface PodcastRequest {
+  topic: string;
+  duration_minutes: number;
+  level: "beginner" | "intermediate" | "advanced";
+  model?: string;
+}
+
+export interface PodcastJob {
+  job_id: string;
+  topic: string;
+  status: string;
+  progress_pct: number;
+  output_path?: string;
+  error?: string;
+  created_at: string;
+  duration_minutes: number;
+  level: string;
+}
+
+export interface WorkflowRunRequest {
+  nodes: any[];
+  edges: any[];
+}
+
+export interface WorkflowTraceEntry {
+  node_id: string;
+  label?: string;
+  type?: string;
+  result?: unknown;
+  error?: string;
+}
+
+export interface WorkflowRunResult {
+  success: boolean;
+  trace?: WorkflowTraceEntry[];
+  error?: string;
+}
+
+export interface SyncStatus {
+  last_sync: number | null;
+  snapshots: string[];
+}
+
 // ── Helpers ────────────────────────────────────────────────────────
+
+function buildHeaders(includeJson: boolean, extra?: HeadersInit): Headers {
+  const headers = new Headers(extra);
+  if (includeJson && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (API_TOKEN) {
+    headers.set("x-api-token", API_TOKEN);
+  }
+  return headers;
+}
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: buildHeaders(true, options?.headers),
   });
   if (!res.ok) {
     const err = await res.text().catch(() => "Unknown error");
@@ -166,7 +331,7 @@ export async function* chatStream(
 ): AsyncGenerator<string | { thread_id: string }, void, undefined> {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildHeaders(true),
     body: JSON.stringify({ message, model, thread_id: threadId }),
   });
 
@@ -283,7 +448,9 @@ export async function runAgent(
 export async function* streamTrace(
   runId: string
 ): AsyncGenerator<TraceEvent, void, undefined> {
-  const res = await fetch(`${API_BASE}/agents/trace/${runId}`);
+  const res = await fetch(`${API_BASE}/agents/trace/${runId}`, {
+    headers: buildHeaders(false),
+  });
   if (!res.ok) throw new Error(`Trace error: ${res.status}`);
   if (!res.body) throw new Error("No response body");
 
@@ -314,107 +481,13 @@ export async function* streamTrace(
 
 // ── Tools ──────────────────────────────────────────────────────────
 
-export interface ToolInfo {
-  name: string;
-  category: string;
-  description: string;
-}
-
-export interface FileResult {
-  path: string;
-  content?: string;
-  size_bytes?: number;
-  line_count?: number;
-  truncated?: boolean;
-  error?: string;
-}
-
-export interface FileSearchResult {
-  directory: string;
-  pattern: string;
-  matches: Array<{
-    path: string;
-    name: string;
-    extension: string;
-    size_bytes?: number;
-    modified?: string;
-  }>;
-  total_found: number;
-  truncated: boolean;
-}
-
-export interface DirEntry {
-  name: string;
-  type: "file" | "directory";
-  size_bytes?: number;
-  modified?: string;
-  child_count?: number;
-}
-
-export interface DirListResult {
-  path: string;
-  items: DirEntry[];
-  total_items: number;
-}
-
-export interface GitStatusResult {
-  repo_path: string;
-  branch: string;
-  modified: string[];
-  staged: string[];
-  untracked: string[];
-  clean: boolean;
-}
-
-export interface GitLogResult {
-  repo_path: string;
-  commits: Array<{ hash: string; message: string; author?: string; date?: string }>;
-  count: number;
-}
-
-export interface GitDiffResult {
-  repo_path: string;
-  staged: boolean;
-  stat: string;
-  diff: string;
-  files_changed: number;
-}
-
-export interface RepoSummaryResult {
-  repo_path: string;
-  status: GitStatusResult;
-  recent_commits: Array<{ hash: string; message: string }>;
-  branches: { current: string; local: string[]; remote: string[] };
-}
-
-export interface CommandResult {
-  command: string;
-  stdout?: string;
-  stderr?: string;
-  returncode?: number;
-  success: boolean;
-  timed_out?: boolean;
-  blocked?: boolean;
-  status?: string;
-  message?: string;
-  error?: string;
-}
-
-export interface CommandCheckResult {
-  command: string;
-  allowed: boolean;
-  blocked: boolean;
-  requires_approval: boolean;
-}
-
-// Tool discovery
 export async function listTools(): Promise<{ tools: ToolInfo[]; count: number }> {
   return api("/tools/list");
 }
 
-// File system
 export async function toolReadFile(
-  path: string, maxLines?: number
+  path: string,
+  maxLines?: number
 ): Promise<FileResult> {
   return api("/tools/fs/read", {
     method: "POST",
@@ -423,7 +496,8 @@ export async function toolReadFile(
 }
 
 export async function toolWriteFile(
-  path: string, content: string
+  path: string,
+  content: string
 ): Promise<{ path: string; bytes_written: number; created: boolean }> {
   return api("/tools/fs/write", {
     method: "POST",
@@ -432,7 +506,9 @@ export async function toolWriteFile(
 }
 
 export async function toolSearchFiles(
-  directory: string, pattern: string = "*", recursive: boolean = true
+  directory: string,
+  pattern: string = "*",
+  recursive: boolean = true
 ): Promise<FileSearchResult> {
   return api("/tools/fs/search", {
     method: "POST",
@@ -447,7 +523,6 @@ export async function toolListDir(path: string): Promise<DirListResult> {
   });
 }
 
-// Git
 export async function toolGitStatus(repoPath: string): Promise<GitStatusResult> {
   return api("/tools/git/status", {
     method: "POST",
@@ -456,7 +531,8 @@ export async function toolGitStatus(repoPath: string): Promise<GitStatusResult> 
 }
 
 export async function toolGitLog(
-  repoPath: string, maxCommits: number = 10
+  repoPath: string,
+  maxCommits: number = 10
 ): Promise<GitLogResult> {
   return api("/tools/git/log", {
     method: "POST",
@@ -465,7 +541,8 @@ export async function toolGitLog(
 }
 
 export async function toolGitDiff(
-  repoPath: string, staged: boolean = false
+  repoPath: string,
+  staged: boolean = false
 ): Promise<GitDiffResult> {
   return api("/tools/git/diff", {
     method: "POST",
@@ -482,7 +559,6 @@ export async function toolRepoSummary(
   });
 }
 
-// Execution
 export async function toolExecCommand(
   command: string,
   cwd?: string,
@@ -490,9 +566,7 @@ export async function toolExecCommand(
 ): Promise<CommandResult> {
   return api("/tools/exec", {
     method: "POST",
-    body: JSON.stringify({
-      command, cwd, timeout,
-    }),
+    body: JSON.stringify({ command, cwd, timeout }),
   });
 }
 
@@ -506,25 +580,6 @@ export async function toolCheckCommand(
 }
 
 // ── Podcast ────────────────────────────────────────────────────────
-
-export interface PodcastRequest {
-  topic: string;
-  duration_minutes: number;
-  level: "beginner" | "intermediate" | "advanced";
-  model?: string;
-}
-
-export interface PodcastJob {
-  job_id: string;
-  topic: string;
-  status: string;
-  progress_pct: number;
-  output_path?: string;
-  error?: string;
-  created_at: string;
-  duration_minutes: number;
-  level: string;
-}
 
 export async function generatePodcast(
   req: PodcastRequest
@@ -545,10 +600,16 @@ export async function listPodcastJobs(): Promise<{ jobs: PodcastJob[]; count: nu
   return api("/api/podcast/jobs");
 }
 
+export function getPodcastDownloadUrl(jobId: string): string {
+  return `${API_BASE}/api/podcast/download/${jobId}`;
+}
+
 export async function* streamPodcastProgress(
   jobId: string
 ): AsyncGenerator<PodcastJob, void, undefined> {
-  const res = await fetch(`${API_BASE}/api/podcast/status/${jobId}/stream`);
+  const res = await fetch(`${API_BASE}/api/podcast/status/${jobId}/stream`, {
+    headers: buildHeaders(false),
+  });
   if (!res.ok) throw new Error(`Podcast stream error: ${res.status}`);
   if (!res.body) throw new Error("No response body");
 
@@ -577,14 +638,9 @@ export async function* streamPodcastProgress(
   }
 }
 
-// ── Workflows (Phase J) ──────────────────────────────────────────────
+// ── Workflows ──────────────────────────────────────────────────────
 
-export interface WorkflowRunRequest {
-  nodes: any[];
-  edges: any[];
-}
-
-export async function runWorkflow(req: WorkflowRunRequest): Promise<any> {
+export async function runWorkflow(req: WorkflowRunRequest): Promise<WorkflowRunResult> {
   return api("/workflows/run", {
     method: "POST",
     body: JSON.stringify(req),
@@ -602,7 +658,7 @@ export async function listWorkflows(): Promise<{ workflows: string[] }> {
   return api("/workflows/list");
 }
 
-// ── Context Sensing (Phase I) ────────────────────────────────────────
+// ── Context Sensing ────────────────────────────────────────────────
 
 export async function getActiveContext(): Promise<any> {
   return api("/context/active");
@@ -612,14 +668,14 @@ export async function clearActiveContext(): Promise<any> {
   return api("/context/clear", { method: "POST" });
 }
 
-// ── Sync Hub (Phase K) ──────────────────────────────────────────────
+// ── Sync Hub ───────────────────────────────────────────────────────
 
-export interface SyncStatus {
-  last_sync: number | null;
-  snapshots: string[];
-}
-
-export async function triggerSync(): Promise<{ status: string; message: string; exported?: string[]; failed?: Array<{ collection: string; error: string }> }> {
+export async function triggerSync(): Promise<{
+  status: string;
+  message: string;
+  exported?: string[];
+  failed?: Array<{ collection: string; error: string }>;
+}> {
   return api("/sync/trigger", { method: "POST" });
 }
 

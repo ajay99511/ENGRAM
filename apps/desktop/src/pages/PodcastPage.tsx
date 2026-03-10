@@ -3,6 +3,7 @@ import type { PodcastJob } from "../lib/api";
 import {
   generatePodcast,
   getPodcastStatus,
+  getPodcastDownloadUrl,
   listPodcastJobs,
 } from "../lib/api";
 
@@ -130,7 +131,7 @@ export default function PodcastPage() {
   // ── Audio URL ─────────────────────────────────────────────────
   const audioUrl =
     activeJob?.status === "done" && activeJob?.job_id
-      ? `http://127.0.0.1:13420/api/podcast/download/${activeJob.job_id}`
+      ? getPodcastDownloadUrl(activeJob.job_id)
       : null;
 
   // ── Render ────────────────────────────────────────────────────
@@ -605,3 +606,4 @@ export default function PodcastPage() {
     </div>
   );
 }
+
