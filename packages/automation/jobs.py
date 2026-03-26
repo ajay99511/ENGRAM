@@ -1,8 +1,6 @@
 import logging
-import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from packages.agents.crew import run_crew
-from packages.automation.sync import create_qdrant_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +41,5 @@ def setup_jobs(scheduler: AsyncIOScheduler):
         id='daily_briefing',
         replace_existing=True
     )
-    
-    # Run the Qdrant Snapshot Sync every hour
-    scheduler.add_job(
-        create_qdrant_snapshot,
-        'interval',
-        hours=1,
-        id='qdrant_sync_snapshot',
-        replace_existing=True
-    )
-    
-    logger.info("Registered Background Jobs (Daily Briefing at 8:00 AM, Hourly Sync Snapshots)")
+
+    logger.info("Registered Background Jobs (Daily Briefing at 8:00 AM)")

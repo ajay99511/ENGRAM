@@ -6,15 +6,12 @@ import MemoryPage from "./pages/MemoryPage";
 import ModelsPage from "./pages/ModelsPage";
 import AgentsPage from "./pages/AgentsPage";
 import IngestionPage from "./pages/IngestionPage";
-import ToolsPage from "./pages/ToolsPage";
 import PodcastPage from "./pages/PodcastPage";
-import WorkflowPage from "./pages/WorkflowPage";
-import SyncPage from "./pages/SyncPage";
 import { checkHealth } from "./lib/api";
 import { register } from "@tauri-apps/plugin-global-shortcut";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-type Page = "chat" | "memory" | "models" | "agents" | "ingest" | "tools" | "podcast" | "workflows" | "sync";
+type Page = "chat" | "memory" | "models" | "agents" | "ingest" | "podcast";
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "💬" },
@@ -22,9 +19,6 @@ const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "models", label: "Models", icon: "⚡" },
   { id: "agents", label: "Agents", icon: "🤖" },
   { id: "ingest", label: "Ingestion", icon: "📥" },
-  { id: "tools", label: "Tools", icon: "🛠️" },
-  { id: "workflows", label: "Workflows", icon: "⚡" },
-  { id: "sync", label: "P2P Sync", icon: "🔄" },
   { id: "podcast", label: "Podcast", icon: "🎙️" },
 ];
 
@@ -82,12 +76,6 @@ function App() {
         return <AgentsPage />;
       case "ingest":
         return <IngestionPage />;
-      case "tools":
-        return <ToolsPage />;
-      case "workflows":
-        return <WorkflowPage />;
-      case "sync":
-        return <SyncPage />;
       case "podcast":
         return <PodcastPage />;
     }

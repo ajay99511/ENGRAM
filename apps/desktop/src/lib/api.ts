@@ -121,101 +121,6 @@ export interface HealthResponse {
   version: string;
 }
 
-export interface ToolInfo {
-  name: string;
-  category: string;
-  description: string;
-  risk?: string;
-  schema?: Record<string, unknown>;
-}
-
-export interface FileResult {
-  path: string;
-  content?: string;
-  size_bytes?: number;
-  line_count?: number;
-  truncated?: boolean;
-  error?: string;
-}
-
-export interface FileSearchResult {
-  directory: string;
-  pattern: string;
-  matches: Array<{
-    path: string;
-    name: string;
-    extension: string;
-    size_bytes?: number;
-    modified?: string;
-  }>;
-  total_found: number;
-  truncated: boolean;
-}
-
-export interface DirEntry {
-  name: string;
-  type: "file" | "directory";
-  size_bytes?: number;
-  modified?: string;
-  child_count?: number;
-}
-
-export interface DirListResult {
-  path: string;
-  items: DirEntry[];
-  total_items: number;
-}
-
-export interface GitStatusResult {
-  repo_path: string;
-  branch: string;
-  modified: string[];
-  staged: string[];
-  untracked: string[];
-  clean: boolean;
-}
-
-export interface GitLogResult {
-  repo_path: string;
-  commits: Array<{ hash: string; message: string; author?: string; date?: string }>;
-  count: number;
-}
-
-export interface GitDiffResult {
-  repo_path: string;
-  staged: boolean;
-  stat: string;
-  diff: string;
-  files_changed: number;
-}
-
-export interface RepoSummaryResult {
-  repo_path: string;
-  status: GitStatusResult;
-  recent_commits: Array<{ hash: string; message: string }>;
-  branches: { current: string; local: string[]; remote: string[] };
-}
-
-export interface CommandResult {
-  command: string;
-  stdout?: string;
-  stderr?: string;
-  returncode?: number;
-  success: boolean;
-  timed_out?: boolean;
-  blocked?: boolean;
-  status?: string;
-  message?: string;
-  error?: string;
-}
-
-export interface CommandCheckResult {
-  command: string;
-  allowed: boolean;
-  blocked: boolean;
-  requires_approval: boolean;
-}
-
 export interface PodcastRequest {
   topic: string;
   duration_minutes: number;
@@ -233,30 +138,6 @@ export interface PodcastJob {
   created_at: string;
   duration_minutes: number;
   level: string;
-}
-
-export interface WorkflowRunRequest {
-  nodes: any[];
-  edges: any[];
-}
-
-export interface WorkflowTraceEntry {
-  node_id: string;
-  label?: string;
-  type?: string;
-  result?: unknown;
-  error?: string;
-}
-
-export interface WorkflowRunResult {
-  success: boolean;
-  trace?: WorkflowTraceEntry[];
-  error?: string;
-}
-
-export interface SyncStatus {
-  last_sync: number | null;
-  snapshots: string[];
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -529,117 +410,6 @@ export async function* streamTrace(
   }
 }
 
-// ── Tools ──────────────────────────────────────────────────────────
-
-export async function listTools(): Promise<{ tools: ToolInfo[]; count: number }> {
-  return api("/tools/list");
-}
-
-export async function toolReadFile(
-  path: string,
-  maxLines?: number
-): Promise<FileResult> {
-  return api("/tools/fs/read", {
-    method: "POST",
-    body: JSON.stringify({ path, max_lines: maxLines }),
-  });
-}
-
-export async function toolWriteFile(
-  path: string,
-  content: string
-): Promise<{ path: string; bytes_written: number; created: boolean }> {
-  return api("/tools/fs/write", {
-    method: "POST",
-    body: JSON.stringify({ path, content }),
-  });
-}
-
-export async function toolSearchFiles(
-  directory: string,
-  pattern: string = "*",
-  recursive: boolean = true
-): Promise<FileSearchResult> {
-  return api("/tools/fs/search", {
-    method: "POST",
-    body: JSON.stringify({ directory, pattern, recursive }),
-  });
-}
-
-export async function toolListDir(path: string): Promise<DirListResult> {
-  return api("/tools/fs/list", {
-    method: "POST",
-    body: JSON.stringify({ path }),
-  });
-}
-
-export async function toolGitStatus(repoPath: string): Promise<GitStatusResult> {
-  return api("/tools/git/status", {
-    method: "POST",
-    body: JSON.stringify({ repo_path: repoPath }),
-  });
-}
-
-export async function toolGitLog(
-  repoPath: string,
-  maxCommits: number = 10
-): Promise<GitLogResult> {
-  return api("/tools/git/log", {
-    method: "POST",
-    body: JSON.stringify({ repo_path: repoPath, max_commits: maxCommits }),
-  });
-}
-
-export async function toolGitDiff(
-  repoPath: string,
-  staged: boolean = false
-): Promise<GitDiffResult> {
-  return api("/tools/git/diff", {
-    method: "POST",
-    body: JSON.stringify({ repo_path: repoPath, staged }),
-  });
-}
-
-export async function toolRepoSummary(
-  repoPath: string
-): Promise<RepoSummaryResult> {
-  return api("/tools/git/summary", {
-    method: "POST",
-    body: JSON.stringify({ repo_path: repoPath }),
-  });
-}
-
-export async function toolExecCommand(
-  command: string,
-  cwd?: string,
-  timeout: number = 30
-): Promise<CommandResult> {
-  return api("/tools/exec", {
-    method: "POST",
-    body: JSON.stringify({ command, cwd, timeout }),
-  });
-}
-
-export async function toolExecApprovedCommand(
-  command: string,
-  cwd?: string,
-  timeout: number = 30
-): Promise<CommandResult> {
-  return api("/tools/exec/approved", {
-    method: "POST",
-    body: JSON.stringify({ command, cwd, timeout }),
-  });
-}
-
-export async function toolCheckCommand(
-  command: string
-): Promise<CommandCheckResult> {
-  return api("/tools/exec/check", {
-    method: "POST",
-    body: JSON.stringify({ command }),
-  });
-}
-
 // ── Podcast ────────────────────────────────────────────────────────
 
 export async function generatePodcast(
@@ -699,30 +469,6 @@ export async function* streamPodcastProgress(
   }
 }
 
-// ── Workflows ──────────────────────────────────────────────────────
-
-export async function runWorkflow(req: WorkflowRunRequest): Promise<WorkflowRunResult> {
-  return api("/workflows/run", {
-    method: "POST",
-    body: JSON.stringify(req),
-  });
-}
-
-export async function saveWorkflow(name: string, nodes: any[], edges: any[]): Promise<any> {
-  return api("/workflows/save", {
-    method: "POST",
-    body: JSON.stringify({ name, nodes, edges }),
-  });
-}
-
-export async function listWorkflows(): Promise<{ workflows: string[] }> {
-  return api("/workflows/list");
-}
-
-export async function loadWorkflow(name: string): Promise<{ name: string; nodes: any[]; edges: any[] }> {
-  return api(`/workflows/load/${encodeURIComponent(name)}`);
-}
-
 // ── Context Sensing ────────────────────────────────────────────────
 
 export async function getActiveContext(): Promise<any> {
@@ -731,19 +477,4 @@ export async function getActiveContext(): Promise<any> {
 
 export async function clearActiveContext(): Promise<any> {
   return api("/context/clear", { method: "POST" });
-}
-
-// ── Sync Hub ───────────────────────────────────────────────────────
-
-export async function triggerSync(): Promise<{
-  status: string;
-  message: string;
-  exported?: string[];
-  failed?: Array<{ collection: string; error: string }>;
-}> {
-  return api("/sync/trigger", { method: "POST" });
-}
-
-export async function getSyncStatus(): Promise<SyncStatus> {
-  return api("/sync/status");
 }
