@@ -1,0 +1,15 @@
+    Blocking waiting for file lock on build directory
+    Checking desktop v0.1.0 (C:\Agents\PersonalAssist\apps\desktop\src-tauri)
+warning: field `0` is never read
+  --> src\lib.rs:11:19
+   |
+11 | struct ApiProcess(Arc<Mutex<Option<Child>>>);
+   |        ---------- ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |        |
+   |        field in this struct
+   |
+   = help: consider removing this field
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `desktop` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.29s

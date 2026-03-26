@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+import asyncio
 
 from packages.shared.config import settings
 
@@ -144,7 +145,7 @@ async def consolidate_memories(
                 mem_text = mem.get("memory", mem.get("content", ""))
                 if mem_text and mem_text in line:
                     try:
-                        mem0_delete(mem["id"])
+                        await asyncio.to_thread(mem0_delete, mem["id"])
                         removed = int(removed) + 1
                         actions_taken.append({"action": "removed", "reason": reason, "id": mem["id"]})
                     except Exception:
@@ -156,7 +157,7 @@ async def consolidate_memories(
             new_text = parts[0].replace("MERGE:", "").strip()
             if new_text:
                 try:
-                    mem0_add(new_text, user_id=user_id)
+                    await asyncio.to_thread(mem0_add, new_text, user_id=user_id)
                     merged = int(merged) + 1
                     actions_taken.append({"action": "merged", "new_text": new_text[:100]})
                 except Exception:

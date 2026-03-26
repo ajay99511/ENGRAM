@@ -60,6 +60,22 @@ _EXTENSION_MAP: dict[str, str] = {
     ".ini": "text",
     ".toml": "text",
     ".rst": "text",
+    ".html": "text",
+    ".htm": "text",
+    ".css": "text",
+    ".xml": "text",
+    ".rs": "text",
+    ".go": "text",
+    ".java": "text",
+    ".c": "text",
+    ".cpp": "text",
+    ".h": "text",
+    ".hpp": "text",
+    ".rb": "text",
+    ".php": "text",
+    ".sh": "text",
+    ".bat": "text",
+    ".ps1": "text",
 }
 
 

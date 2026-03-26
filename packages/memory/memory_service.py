@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+import asyncio
 
 from packages.memory import qdrant_store
 from packages.memory.schemas import MemoryItem, MemorySearchResult, MemoryType
@@ -92,6 +93,7 @@ async def store_memory(
         "user_id": item.user_id,
         "memory_type": item.memory_type.value,
         "timestamp": item.timestamp.isoformat(),
+        "content_type": "memory",
     }
 
     point_id = await qdrant_store.upsert(
@@ -117,21 +119,24 @@ async def query_memories(
     """
     await _ensure_init()
 
-    raw_results = await qdrant_store.search(query=query, k=k)
+    raw_results = await qdrant_store.search(
+        query=query,
+        k=k,
+        filter_conditions={"content_type": "memory", "user_id": user_id},
+    )
 
     results = []
     for hit in raw_results:
         meta = hit.get("metadata", {})
-        if meta.get("user_id", "default") == user_id:
-            results.append(
-                MemorySearchResult(
-                    id=hit["id"],
-                    content=hit["content"],
-                    memory_type=meta.get("memory_type", "PROFILE"),
-                    score=hit["score"],
-                    metadata=meta,
-                ).model_dump()
-            )
+        results.append(
+            MemorySearchResult(
+                id=hit["id"],
+                content=hit["content"],
+                memory_type=meta.get("memory_type", "PROFILE"),
+                score=hit["score"],
+                metadata=meta,
+            ).model_dump()
+        )
 
     return results
 
@@ -146,7 +151,7 @@ async def extract_and_store_from_turn(
     try:
         from packages.memory.mem0_client import mem0_add
 
-        result = mem0_add(messages, user_id=user_id)
+        result = await asyncio.to_thread(mem0_add, messages, user_id=user_id)
         logger.info(
             "Extracted memories from turn for user=%s: %s",
             user_id,
@@ -167,7 +172,7 @@ async def get_all_user_memories(
     try:
         from packages.memory.mem0_client import mem0_get_all
 
-        return mem0_get_all(user_id=user_id)
+        return await asyncio.to_thread(mem0_get_all, user_id=user_id)
     except Exception as exc:
         logger.warning("Could not retrieve Mem0 memories: %s", exc)
         return []
@@ -180,7 +185,7 @@ async def forget_memory(memory_id: str) -> dict[str, Any]:
     try:
         from packages.memory.mem0_client import mem0_delete
 
-        result = mem0_delete(memory_id)
+        result = await asyncio.to_thread(mem0_delete, memory_id)
         return {"status": "deleted", "memory_id": memory_id, "result": result}
     except Exception as exc:
         logger.error("Failed to delete memory %s: %s", memory_id, exc)
@@ -201,7 +206,8 @@ async def build_context(
     try:
         from packages.memory.mem0_client import mem0_search
 
-        mem0_results = mem0_search(
+        mem0_results = await asyncio.to_thread(
+            mem0_search,
             user_message,
             user_id=user_id,
             limit=min(k, settings.rag_memory_limit),
@@ -222,7 +228,11 @@ async def build_context(
         logger.debug("Mem0 context unavailable: %s", exc)
 
     try:
-        qdrant_results = await qdrant_store.search(query=user_message, k=k)
+        qdrant_results = await qdrant_store.search(
+            query=user_message,
+            k=k,
+            filter_conditions={"content_type": "document"},
+        )
         doc_results = [
             r for r in qdrant_results
             if r.get("metadata", {}).get("content_type") == "document"
@@ -272,6 +282,7 @@ async def build_context(
 
     header = (
         "Use this context to personalize the response. "
-        "Reference relevant facts briefly and only when they materially help."
+        "Reference relevant facts briefly and only when they materially help. "
+        "When you use document content, cite the source path in brackets like [C:\\path\\file.ext]."
     )
     return _clip_text(header + "\n\n" + "\n\n".join(sections), total_budget)

@@ -162,7 +162,11 @@ def _recursive_split(
             if current.strip():
                 chunks.append(Chunk(text=current.strip(), chunk_index=0))
 
-    # If we tried all separators and couldn't break it down cleanly, 
+            # Return the first successful separator-based split
+            if chunks:
+                return chunks
+
+    # If we tried all separators and couldn't break it down cleanly,
     # we must fall back to a hard character split for the entire string.
     chunks = []
     

@@ -16,7 +16,9 @@ from packages.agents.podcast_crew import (
     PodcastRequest,
     PodcastJob,
     _extract_json,
+    _run_planner,
 )
+from packages.model_gateway.client import ChatCompletionResult
 
 
 # ── Model Validation Tests ──────────────────────────────────────────
@@ -182,6 +184,45 @@ class TestJobLifecycle:
         job.output_path = "/tmp/podcast.mp3"
         assert job.status == "done"
         assert job.output_path is not None
+
+
+@pytest.mark.asyncio
+async def test_run_planner_uses_structured_tool_payload(monkeypatch):
+    async def fake_chat_completion(*args, **kwargs):
+        return ChatCompletionResult(
+            content="",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                        "name": "submit_curriculum",
+                        "arguments": json.dumps(
+                            {
+                                "title": "Test Podcast",
+                                "modules": [
+                                    {
+                                        "title": "Intro",
+                                        "priority": "high",
+                                        "allocated_minutes": 15,
+                                        "search_queries": ["intro query"],
+                                    }
+                                ],
+                                "total_minutes": 15,
+                            }
+                        ),
+                    },
+                }
+            ],
+        )
+
+    monkeypatch.setattr("packages.agents.podcast_crew.chat_completion", fake_chat_completion)
+
+    req = PodcastRequest(topic="Test", duration_minutes=15, level="beginner")
+    curriculum = await _run_planner(req)
+    assert curriculum.title == "Test Podcast"
+    assert curriculum.total_minutes == 15
+    assert len(curriculum.modules) == 1
 
 
 if __name__ == "__main__":

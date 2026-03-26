@@ -36,7 +36,16 @@ scheduler = AsyncIOScheduler()
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up PersonalAssist API and Background Scheduler...")
+    if not settings.api_access_token:
+        logger.warning("API_ACCESS_TOKEN is not set. Tool endpoints are open to local processes.")
     
+    # Initialize chat database (required for chat persistence endpoints)
+    try:
+        from packages.automation.sync import restore_latest_snapshots
+        await restore_latest_snapshots()
+    except Exception as e:
+        logger.error(f"Failed to restore P2P snapshots during boot: {e}")
+
     # Initialize chat database (required for chat persistence endpoints)
     try:
         from packages.shared.db import init_db
@@ -44,13 +53,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         raise
-        
-    # Check for and restore P2P synced snapshots
-    try:
-        from packages.automation.sync import restore_latest_snapshots
-        await restore_latest_snapshots()
-    except Exception as e:
-        logger.error(f"Failed to restore P2P snapshots during boot: {e}")
         
     scheduler.start()
     try:
@@ -339,6 +341,98 @@ async def chat_stream_endpoint(req: ChatRequest):
 
         except Exception as exc:
             logger.error("Stream error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.post("/chat/smart/stream")
+async def chat_smart_stream(req: ChatRequest):
+    """SSE streaming RAG-enhanced chat with auto-learning and persistence."""
+    from packages.shared.db import AsyncSessionLocal
+    from packages.memory.models import ChatMessage
+
+    async with AsyncSessionLocal() as session:
+        thread = await _resolve_or_create_thread(session, req.thread_id, req.message)
+        req.thread_id = thread.id
+
+        user_msg = ChatMessage(
+            thread_id=req.thread_id,
+            role="user",
+            content=req.message,
+        )
+        _touch_thread(thread)
+        session.add(user_msg)
+        await session.commit()
+
+    context_prefix = ""
+    memory_used = False
+
+    global _ACTIVE_CONTEXT
+    if _ACTIVE_CONTEXT:
+        context_prefix += _clip_text(
+            f"USER'S ACTIVE CONTEXT (IDE/Terminal):\n{json.dumps(_ACTIVE_CONTEXT, indent=2)}\n\n",
+            settings.rag_context_char_budget,
+        )
+
+    try:
+        from packages.memory.memory_service import build_context
+
+        rag_context = await build_context(req.message, user_id="default")
+        if rag_context:
+            context_prefix += "RETRIEVED KNOWLEDGE AND MEMORIES:\n" + rag_context + "\n"
+            memory_used = True
+    except Exception as exc:
+        logger.warning("Memory layer unavailable, proceeding without context: %s", exc)
+
+    async with AsyncSessionLocal() as session:
+        messages = await _build_thread_messages(session, req.thread_id, system_context=context_prefix)
+
+    async def generate():
+        full_response = ""
+        try:
+            yield f"data: {json.dumps({'thread_id': req.thread_id, 'memory_used': memory_used})}\n\n"
+
+            async for chunk in chat_stream(messages, model=req.model, temperature=req.temperature):
+                full_response += chunk
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+
+            model_used = settings.resolve_model(req.model)
+            async with AsyncSessionLocal() as session:
+                thread = await _resolve_or_create_thread(session, req.thread_id, req.message)
+                assistant_msg = ChatMessage(
+                    thread_id=req.thread_id,
+                    role="assistant",
+                    content=full_response,
+                    model_used=model_used,
+                    memory_used=memory_used,
+                )
+                _touch_thread(thread)
+                session.add(assistant_msg)
+                await session.commit()
+
+            try:
+                from packages.memory.memory_service import extract_and_store_from_turn
+                from packages.memory.consolidation import consolidate_memories, increment_turn, should_consolidate
+
+                turn_messages = [
+                    {"role": "user", "content": req.message},
+                    {"role": "assistant", "content": full_response},
+                ]
+                await extract_and_store_from_turn(turn_messages, user_id="default")
+
+                increment_turn(user_id="default")
+                if should_consolidate(user_id="default"):
+                    logger.info("Turn threshold reached, triggering memory consolidation")
+                    import asyncio
+
+                    asyncio.create_task(consolidate_memories(user_id="default", model=req.model))
+            except Exception as exc:
+                logger.warning("Auto-extraction failed (non-fatal): %s", exc)
+
+        except Exception as exc:
+            logger.error("Smart stream error: %s", exc)
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
@@ -816,6 +910,27 @@ async def list_workflows():
     files = [f.stem for f in wf_dir.glob("*.json")]
     return {"workflows": files}
 
+
+@app.get("/workflows/load/{name}")
+async def load_workflow(name: str):
+    """Load a saved workflow definition by name."""
+    try:
+        wf_dir = (Path(settings.data_dir) / "workflows").resolve()
+        safe_name = _sanitize_workflow_name(name)
+        file_path = (wf_dir / f"{safe_name}.json").resolve()
+        if file_path.parent != wf_dir:
+            raise ValueError("Invalid workflow name.")
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        with file_path.open("r") as f:
+            data = json.load(f)
+        return {"name": safe_name, "nodes": data.get("nodes", []), "edges": data.get("edges", [])}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Workflow Load Error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
 # ── Local Operations Tool Endpoints ─────────────────────────────────
 
 
@@ -863,6 +978,8 @@ async def list_tools():
                 "name": name,
                 "category": info["category"],
                 "description": info["description"],
+                "risk": info.get("risk", "read"),
+                "schema": info.get("schema", {}),
             }
             for name, info in TOOL_REGISTRY.items()
         ],
@@ -958,6 +1075,18 @@ async def tool_exec_command(req: ToolExecRequest):
     """Execute a command in a sandboxed subprocess."""
     from packages.tools.exec import run_command
     result = await run_command(
+        req.command, cwd=req.cwd, timeout=req.timeout,
+    )
+    if result.get("blocked"):
+        raise HTTPException(status_code=403, detail=result["error"])
+    return result
+
+
+@app.post("/tools/exec/approved")
+async def tool_exec_command_approved(req: ToolExecRequest):
+    """Execute a user-approved command (bypasses allowlist)."""
+    from packages.tools.exec import run_approved_command
+    result = await run_approved_command(
         req.command, cwd=req.cwd, timeout=req.timeout,
     )
     if result.get("blocked"):

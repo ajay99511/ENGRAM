@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from packages.shared.config import settings
+
 logger = logging.getLogger(__name__)
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -58,6 +60,33 @@ def _is_path_safe_for_write(path: Path) -> bool:
     return True
 
 
+def _get_allowed_roots() -> list[str]:
+    """Parse allowed roots from config (comma-separated)."""
+    raw = getattr(settings, "fs_allowed_roots", "") or ""
+    roots = [r.strip() for r in raw.split(",") if r.strip()]
+    normalized = []
+    for r in roots:
+        try:
+            normalized.append(str(Path(r).resolve()).replace("/", "\\"))
+        except Exception:
+            continue
+    return normalized
+
+
+def _is_path_allowed(path: Path) -> bool:
+    """
+    Enforce allowlist when configured.
+
+    If FS_ALLOWED_ROOTS is empty, all paths are allowed.
+    """
+    roots = _get_allowed_roots()
+    if not roots:
+        return True
+
+    resolved = str(path.resolve()).replace("/", "\\")
+    return any(resolved.startswith(root) for root in roots)
+
+
 def _should_skip_dir(name: str) -> bool:
     """Return True if this directory name should be skipped."""
     return name in SKIP_DIRS or name.startswith(".")
@@ -84,6 +113,8 @@ async def read_file(
     """
     file_path = Path(path)
 
+    if not _is_path_allowed(file_path):
+        return {"error": f"Read blocked — path is outside allowed roots: {path}"}
     if not file_path.exists():
         return {"error": f"File not found: {path}"}
     if not file_path.is_file():
@@ -139,6 +170,8 @@ async def write_file(
     """
     file_path = Path(path)
 
+    if not _is_path_allowed(file_path):
+        return {"error": f"Write blocked — path is outside allowed roots: {path}"}
     if not _is_path_safe_for_write(file_path):
         return {"error": f"Write blocked — path is in a protected system directory: {path}"}
 
@@ -180,6 +213,8 @@ async def find_files(
         Dict with 'directory', 'pattern', 'matches' list, 'total_found'.
     """
     root = Path(directory)
+    if not _is_path_allowed(root):
+        return {"error": f"Search blocked — path is outside allowed roots: {directory}"}
     if not root.exists() or not root.is_dir():
         return {"error": f"Directory not found: {directory}"}
 
@@ -247,6 +282,8 @@ async def list_directory(
         Dict with 'path', 'items' list, 'total_items'.
     """
     dir_path = Path(path)
+    if not _is_path_allowed(dir_path):
+        return {"error": f"List blocked — path is outside allowed roots: {path}"}
     if not dir_path.exists() or not dir_path.is_dir():
         return {"error": f"Directory not found: {path}"}
 
@@ -302,6 +339,8 @@ async def file_info(path: str) -> dict[str, Any]:
         Dict with 'path', 'type', 'size_bytes', 'modified', 'extension', etc.
     """
     target = Path(path)
+    if not _is_path_allowed(target):
+        return {"error": f"Info blocked — path is outside allowed roots: {path}"}
     if not target.exists():
         return {"error": f"Path not found: {path}"}
 

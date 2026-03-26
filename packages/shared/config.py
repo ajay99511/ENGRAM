@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    deepseek_api_key: str = Field(default="", alias="DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com",
+        alias="DEEPSEEK_BASE_URL",
+    )
     api_access_token: str = Field(
         default="",
         alias="API_ACCESS_TOKEN",
@@ -116,6 +121,82 @@ class Settings(BaseSettings):
         description="Maximum serialized workflow context passed between nodes",
     )
 
+    # --- Agent Tooling ---
+    enable_agent_tool_calls: bool = Field(
+        default=True,
+        alias="ENABLE_AGENT_TOOL_CALLS",
+        description="Allow the agent pipeline to plan and execute tool calls",
+    )
+    allow_exec_tools: bool = Field(
+        default=False,
+        alias="ALLOW_EXEC_TOOLS",
+        description="Allow the agent pipeline to execute shell commands via exec tools",
+    )
+    agent_allow_mutating_tools: bool = Field(
+        default=False,
+        alias="AGENT_ALLOW_MUTATING_TOOLS",
+        description="Allow mutating tools (write/exec) in native tool-calling loops",
+    )
+    agent_native_tool_calling_enabled: bool = Field(
+        default=False,
+        alias="AGENT_NATIVE_TOOL_CALLING_ENABLED",
+        description="Enable native model tool/function calling in the crew pipeline",
+    )
+    agent_legacy_tool_planner_fallback: bool = Field(
+        default=True,
+        alias="AGENT_LEGACY_TOOL_PLANNER_FALLBACK",
+        description="Fallback to legacy regex tool planner when native tool-calling fails",
+    )
+    agent_tool_loop_model: str = Field(
+        default="deepseek-chat",
+        alias="AGENT_TOOL_LOOP_MODEL",
+        description="Model key to use for the tool loop when selected model is not tool-compatible",
+    )
+    agent_tool_loop_max_iterations: int = Field(
+        default=4,
+        alias="AGENT_TOOL_LOOP_MAX_ITERATIONS",
+        description="Maximum native tool-loop reasoning iterations per request",
+    )
+    agent_tool_loop_max_calls: int = Field(
+        default=8,
+        alias="AGENT_TOOL_LOOP_MAX_CALLS",
+        description="Maximum total tool calls allowed during one native tool loop",
+    )
+    agent_tool_call_timeout_seconds: int = Field(
+        default=20,
+        alias="AGENT_TOOL_CALL_TIMEOUT_SECONDS",
+        description="Timeout for each individual tool call in the native tool loop",
+    )
+
+    # --- Agent Stage Token Budgets ---
+    agent_planner_input_token_budget: int = Field(
+        default=1200,
+        alias="AGENT_PLANNER_INPUT_TOKEN_BUDGET",
+        description="Approximate input token budget for planner prompts",
+    )
+    agent_tool_input_token_budget: int = Field(
+        default=1400,
+        alias="AGENT_TOOL_INPUT_TOKEN_BUDGET",
+        description="Approximate input token budget for tool loop prompts",
+    )
+    agent_researcher_input_token_budget: int = Field(
+        default=1800,
+        alias="AGENT_RESEARCHER_INPUT_TOKEN_BUDGET",
+        description="Approximate input token budget for researcher prompts",
+    )
+    agent_synthesizer_input_token_budget: int = Field(
+        default=2200,
+        alias="AGENT_SYNTHESIZER_INPUT_TOKEN_BUDGET",
+        description="Approximate input token budget for synthesizer prompts",
+    )
+
+    # --- File System Tooling ---
+    fs_allowed_roots: str = Field(
+        default="",
+        alias="FS_ALLOWED_ROOTS",
+        description="Comma-separated list of allowed filesystem roots (empty = allow all)",
+    )
+
     # --- Podcast Agent ---
     podcast_output_dir: str = Field(
         default="~/Downloads",
@@ -168,6 +249,9 @@ class Settings(BaseSettings):
             "gemini-flash": "gemini/gemini-2.5-flash",
             "gemini-pro": "gemini/gemini-2.5-pro",
             "claude": "anthropic/claude-sonnet-4-20250514",
+            "deepseek": "deepseek/deepseek-chat",
+            "deepseek-chat": "deepseek/deepseek-chat",
+            "deepseek-reasoner": "deepseek/deepseek-reasoner",
         }
         if model_key in model_map:
             return model_map[model_key]

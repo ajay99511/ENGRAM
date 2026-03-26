@@ -1,5 +1,13 @@
 import { useState, useRef, useEffect } from "react";
-import { runAgent, streamTrace, type TraceEvent, type AgentResult } from "../lib/api";
+import {
+    runAgent,
+    streamTrace,
+    listModels,
+    getActiveModel,
+    type TraceEvent,
+    type AgentResult,
+    type ModelInfo,
+} from "../lib/api";
 
 export default function AgentsPage() {
     const [input, setInput] = useState("");
@@ -7,11 +15,31 @@ export default function AgentsPage() {
     const [loading, setLoading] = useState(false);
     const [traces, setTraces] = useState<TraceEvent[]>([]);
     const [result, setResult] = useState<AgentResult | null>(null);
+    const [models, setModels] = useState<ModelInfo[]>([]);
     const traceEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         traceEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [traces]);
+
+    useEffect(() => {
+        let mounted = true;
+        const loadModels = async () => {
+            try {
+                const [modelData, activeData] = await Promise.all([
+                    listModels(),
+                    getActiveModel(),
+                ]);
+                if (!mounted) return;
+                setModels(modelData.models || []);
+                setModel(activeData.active_model || "local");
+            } catch (err) {
+                console.error("Failed to load models for agents page:", err);
+            }
+        };
+        loadModels();
+        return () => { mounted = false; };
+    }, []);
 
     const handleRun = async () => {
         const text = input.trim();
@@ -115,6 +143,17 @@ export default function AgentsPage() {
         }
     };
 
+    const selectedModel = models.find(m => m.id === model);
+    const localModels = models.filter(m => m.is_local);
+    const remoteGroups = models
+        .filter(m => !m.is_local)
+        .reduce<Record<string, ModelInfo[]>>((acc, m) => {
+            const key = m.provider || "remote";
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(m);
+            return acc;
+        }, {});
+
     return (
         <>
             <div className="page-header">
@@ -141,12 +180,30 @@ export default function AgentsPage() {
                             onChange={(e) => setModel(e.target.value)}
                             style={{ width: 160, flex: "none" }}
                         >
-                            <option value="local">Local (Ollama)</option>
-                            <option value="gemini">Gemini Flash</option>
-                            <option value="claude">Claude Sonnet</option>
+                            {localModels.length > 0 && (
+                                <optgroup label="🖥️ Local">
+                                    {localModels.map((m) => (
+                                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                                    ))}
+                                </optgroup>
+                            )}
+                            {Object.entries(remoteGroups).map(([provider, providerModels]) => (
+                                <optgroup key={provider} label={`☁️ ${provider}`}>
+                                    {providerModels.map((m) => (
+                                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
                             <option value="active">Active Model</option>
                         </select>
                     </div>
+
+                    {selectedModel && (
+                        <div className="card-subtitle" style={{ marginBottom: 8 }}>
+                            {selectedModel.supports_tool_calls ? "Tool-calling enabled." : "Tool-calling may be routed to a compatible model."}
+                            {selectedModel.requires_reasoning_echo ? " Reasoning echo continuity is enabled for this model." : ""}
+                        </div>
+                    )}
 
                     <div className="input-group">
                         <input

@@ -222,3 +222,57 @@ class TestExecTools:
         result = run_async(run_command("echo hello_test", force_approve=True))
         assert result["success"] is True
         assert "hello_test" in result["stdout"]
+
+
+class TestAgentToolRegistry:
+    def test_build_native_tool_schemas_read_only(self):
+        from packages.agents.tools import build_native_tool_schemas
+
+        schemas = build_native_tool_schemas(
+            allow_exec_tools=False,
+            allow_mutating_tools=False,
+        )
+        names = {s.get("function", {}).get("name") for s in schemas}
+        assert "read_file" in names
+        assert "search_documents" in names
+        assert "write_file" not in names
+        assert "exec_command" not in names
+
+    def test_build_native_tool_schemas_with_mutations(self):
+        from packages.agents.tools import build_native_tool_schemas
+
+        schemas = build_native_tool_schemas(
+            allow_exec_tools=True,
+            allow_mutating_tools=True,
+        )
+        names = {s.get("function", {}).get("name") for s in schemas}
+        assert "write_file" in names
+        assert "exec_command" in names
+
+    def test_execute_registered_tool_rejects_bad_args(self):
+        from packages.agents.tools import execute_registered_tool
+
+        result = run_async(
+            execute_registered_tool(
+                "read_file",
+                {"not_path": "abc"},
+                allow_exec_tools=False,
+                allow_mutating_tools=False,
+            )
+        )
+        assert result["success"] is False
+        assert "Missing required argument" in result["error"]
+
+    def test_execute_registered_tool_unknown(self):
+        from packages.agents.tools import execute_registered_tool
+
+        result = run_async(
+            execute_registered_tool(
+                "nonexistent_tool",
+                {},
+                allow_exec_tools=False,
+                allow_mutating_tools=False,
+            )
+        )
+        assert result["success"] is False
+        assert "not allowed or not found" in result["error"]

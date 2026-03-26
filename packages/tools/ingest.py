@@ -250,16 +250,26 @@ async def _process_file(file_path: Path, store) -> int:
     if not chunks:
         return 0
 
+    # Stable document ID based on file path
+    import hashlib
+    doc_id = hashlib.sha256(str(file_path).encode()).hexdigest()[:16]
+
     # Upsert each chunk to Qdrant
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
+        chunk_idx = chunk.metadata.get("chunk_index", i)
         metadata = {
             **chunk.metadata,
             "content_type": "document",
             "user_id": "default",
+            "document_id": doc_id,
         }
+        point_id = hashlib.sha256(
+            f"{doc_id}:{chunk_idx}".encode()
+        ).hexdigest()[:32]
         await store.upsert(
             text=chunk.text,
             metadata=metadata,
+            point_id=point_id,
         )
 
     return len(chunks)

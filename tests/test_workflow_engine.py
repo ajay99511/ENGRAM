@@ -63,7 +63,10 @@ async def test_tool_pending_approval_halts(monkeypatch):
             "message": "needs approval",
         }
 
-    monkeypatch.setattr(engine_module, "run_command", fake_run_command)
+    monkeypatch.setitem(engine_module.TOOL_REGISTRY, "exec_command", {
+        **engine_module.TOOL_REGISTRY["exec_command"],
+        "fn": fake_run_command,
+    })
 
     nodes = [
         _node("t1", "trigger", "Start"),
@@ -118,7 +121,10 @@ async def test_tool_success(monkeypatch):
     async def fake_run_command(command: str, cwd=None, timeout=30):
         return {"success": True, "stdout": "ok", "stderr": "", "returncode": 0}
 
-    monkeypatch.setattr(engine_module, "run_command", fake_run_command)
+    monkeypatch.setitem(engine_module.TOOL_REGISTRY, "exec_command", {
+        **engine_module.TOOL_REGISTRY["exec_command"],
+        "fn": fake_run_command,
+    })
 
     nodes = [
         _node("t1", "trigger", "Start"),

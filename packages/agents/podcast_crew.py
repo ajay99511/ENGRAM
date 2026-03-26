@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from packages.model_gateway.client import chat
+from packages.model_gateway.client import chat, chat_completion, try_parse_json
 from packages.agents.trace import trace_manager, TraceEvent
 
 logger = logging.getLogger(__name__)
@@ -167,6 +167,42 @@ This is a {level}-level session designed for about {duration} minutes. Let's get
 PRODUCER_OUTRO_TEMPLATE = """That wraps up our deep dive into {topic}. I hope you've picked up \
 some valuable insights. Until next time, keep learning and stay curious."""
 
+PODCAST_CURRICULUM_TOOL = [
+    {
+        "type": "function",
+        "function": {
+            "name": "submit_curriculum",
+            "description": "Submit the final podcast curriculum.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "modules": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "priority": {"type": "string", "enum": ["high", "medium", "low"]},
+                                "allocated_minutes": {"type": "integer"},
+                                "search_queries": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                            },
+                            "required": ["title", "allocated_minutes", "search_queries"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "total_minutes": {"type": "integer"},
+                },
+                "required": ["title", "modules", "total_minutes"],
+                "additionalProperties": False,
+            },
+        },
+    }
+]
+
 
 # ── Pipeline Execution ───────────────────────────────────────────────
 
@@ -281,16 +317,36 @@ async def _run_planner(request: PodcastRequest) -> PodcastCurriculum:
         )},
     ]
 
-    raw = await chat(messages, model=request.model, temperature=0.2)
+    result = await chat_completion(
+        messages,
+        model=request.model,
+        temperature=0.2,
+        tools=PODCAST_CURRICULUM_TOOL,
+        tool_choice={"type": "function", "function": {"name": "submit_curriculum"}},
+    )
 
-    # Extract JSON from response (handle potential markdown wrapping)
-    json_str = _extract_json(raw)
+    curriculum_data: dict[str, Any] | None = None
+    if result.tool_calls:
+        first = result.tool_calls[0]
+        fn = first.get("function", {})
+        raw_args = fn.get("arguments", "{}")
+        if isinstance(raw_args, str):
+            parsed = try_parse_json(raw_args)
+            if isinstance(parsed, dict):
+                curriculum_data = parsed
+        elif isinstance(raw_args, dict):
+            curriculum_data = raw_args
 
-    try:
-        curriculum = PodcastCurriculum.model_validate_json(json_str)
-    except Exception as exc:
-        logger.warning("Planner JSON parse failed, attempting repair: %s", exc)
-        curriculum = await _repair_curriculum_json(raw, request)
+    # Fallback: strict direct JSON parse from content (no regex extraction/repair loop)
+    if curriculum_data is None:
+        parsed = try_parse_json(result.content)
+        if isinstance(parsed, dict):
+            curriculum_data = parsed
+
+    if curriculum_data is None:
+        raise ValueError("Planner did not return a valid curriculum payload")
+
+    curriculum = PodcastCurriculum.model_validate(curriculum_data)
 
     # Validate total minutes
     actual_total = sum(m.allocated_minutes for m in curriculum.modules)
@@ -508,22 +564,6 @@ def _extract_json(text: str) -> str:
         return text[brace_start : brace_end + 1]
 
     return text
-
-
-async def _repair_curriculum_json(raw: str, request: PodcastRequest) -> PodcastCurriculum:
-    """Attempt to repair malformed JSON from the Planner via a follow-up call."""
-    repair_messages = [
-        {"role": "system", "content": (
-            "You are a JSON repair agent. The following text is supposed to be a valid JSON "
-            "curriculum but it has syntax errors. Fix it and output ONLY the corrected JSON."
-        )},
-        {"role": "user", "content": raw},
-    ]
-
-    repaired = await chat(repair_messages, model=request.model, temperature=0.0)
-    json_str = _extract_json(repaired)
-
-    return PodcastCurriculum.model_validate_json(json_str)
 
 
 async def _store_research_in_qdrant(

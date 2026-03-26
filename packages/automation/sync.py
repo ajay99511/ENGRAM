@@ -1,4 +1,7 @@
+import json
 import logging
+import shutil
+import time
 from pathlib import Path
 
 import httpx
@@ -61,6 +64,17 @@ async def create_qdrant_snapshot() -> dict:
                 logger.error("Failed to snapshot collection %s: %s", collection, exc)
                 result["failed"].append({"collection": collection, "error": str(exc)})
 
+        # Also snapshot the chat database (SQLite)
+        try:
+            from packages.shared.db import db_path
+            if db_path.exists():
+                ts = int(time.time())
+                chat_snapshot = snapshot_dir / f"chat_db_{ts}.sqlite"
+                shutil.copy2(db_path, chat_snapshot)
+                result["exported"].append(str(chat_snapshot))
+        except Exception as exc:
+            logger.warning("Failed to snapshot chat DB: %s", exc)
+
         if result["exported"] and result["failed"]:
             result["status"] = "partial"
             result["message"] = "Snapshots exported with partial failures"
@@ -87,43 +101,73 @@ async def restore_latest_snapshots():
     if not snapshot_dir.exists():
         return
 
-    tracker_file = snapshot_dir / ".last_restore_time"
-    last_restore = 0.0
+    tracker_file = snapshot_dir / ".last_restore_times.json"
+    last_restore_times: dict[str, float] = {}
     if tracker_file.exists():
         try:
-            last_restore = float(tracker_file.read_text().strip())
+            last_restore_times = json.loads(tracker_file.read_text(encoding="utf-8"))
         except Exception:
-            last_restore = 0.0
+            last_restore_times = {}
 
     url = f"http://{settings.qdrant_host}:{settings.qdrant_port}"
     snapshots = list(snapshot_dir.glob("*.snapshot"))
-    if not snapshots:
-        return
 
-    latest_snapshot = max(snapshots, key=lambda p: p.stat().st_mtime)
+    # Restore latest snapshot per collection
+    known_collections = [
+        settings.mem0_collection,
+        settings.podcast_qdrant_collection,
+        settings.qdrant_collection,
+    ]
+    latest_by_collection: dict[str, Path] = {}
+    for snap in snapshots:
+        matched = None
+        for coll in sorted(known_collections, key=len, reverse=True):
+            if snap.name.startswith(f"{coll}_"):
+                matched = coll
+                break
+        if not matched:
+            continue
+        existing = latest_by_collection.get(matched)
+        if existing is None or snap.stat().st_mtime > existing.stat().st_mtime:
+            latest_by_collection[matched] = snap
 
-    if latest_snapshot.stat().st_mtime <= last_restore + 60:
-        return
+    for collection_name, latest_snapshot in latest_by_collection.items():
+        last_restore = float(last_restore_times.get(collection_name, 0.0))
+        if latest_snapshot.stat().st_mtime <= last_restore + 60:
+            continue
 
-    logger.info("Detected newer P2P snapshot: %s. Restoring to Qdrant...", latest_snapshot.name)
+        logger.info("Detected newer P2P snapshot: %s. Restoring to Qdrant...", latest_snapshot.name)
+        try:
+            upload_url = f"{url}/collections/{collection_name}/snapshots/upload?priority=snapshot"
 
-    collection_name = "personal_memories"
-    for prefix in [settings.mem0_collection, settings.podcast_qdrant_collection, settings.qdrant_collection]:
-        if latest_snapshot.name.startswith(prefix):
-            collection_name = prefix
-            break
+            async with httpx.AsyncClient(timeout=300.0) as http_client:
+                with latest_snapshot.open("rb") as handle:
+                    files = {"snapshot": (latest_snapshot.name, handle, "application/octet-stream")}
+                    response = await http_client.post(upload_url, files=files)
+                    response.raise_for_status()
+
+            logger.info("Successfully restored snapshot %s into %s", latest_snapshot.name, collection_name)
+            last_restore_times[collection_name] = latest_snapshot.stat().st_mtime
+
+        except Exception as exc:
+            logger.error("Failed to restore snapshot %s: %s", latest_snapshot.name, exc)
+
+    # Restore latest chat DB snapshot if present
+    chat_snaps = list(snapshot_dir.glob("chat_db_*.sqlite"))
+    if chat_snaps:
+        latest_chat = max(chat_snaps, key=lambda p: p.stat().st_mtime)
+        last_chat = float(last_restore_times.get("chat_db", 0.0))
+        if latest_chat.stat().st_mtime > last_chat + 60:
+            try:
+                from packages.shared.db import db_path
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(latest_chat, db_path)
+                last_restore_times["chat_db"] = latest_chat.stat().st_mtime
+                logger.info("Restored chat DB snapshot %s", latest_chat.name)
+            except Exception as exc:
+                logger.error("Failed to restore chat DB snapshot %s: %s", latest_chat.name, exc)
 
     try:
-        upload_url = f"{url}/collections/{collection_name}/snapshots/upload?priority=snapshot"
-
-        async with httpx.AsyncClient(timeout=300.0) as http_client:
-            with latest_snapshot.open("rb") as handle:
-                files = {"snapshot": (latest_snapshot.name, handle, "application/octet-stream")}
-                response = await http_client.post(upload_url, files=files)
-                response.raise_for_status()
-
-        logger.info("Successfully restored snapshot %s into %s", latest_snapshot.name, collection_name)
-        tracker_file.write_text(str(latest_snapshot.stat().st_mtime))
-
-    except Exception as exc:
-        logger.error("Failed to restore snapshot %s: %s", latest_snapshot.name, exc)
+        tracker_file.write_text(json.dumps(last_restore_times, indent=2), encoding="utf-8")
+    except Exception:
+        pass

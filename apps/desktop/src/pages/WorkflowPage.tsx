@@ -14,7 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { nodeTypes } from "./WorkflowNodes";
-import { runWorkflow, type WorkflowRunResult } from "../lib/api";
+import { runWorkflow, saveWorkflow, listWorkflows, loadWorkflow, type WorkflowRunResult } from "../lib/api";
 
 type WorkflowNodeData = {
   label: string;
@@ -65,6 +65,10 @@ export default function WorkflowPage() {
   const [runResult, setRunResult] = useState<WorkflowRunResult | null>(null);
   const [runError, setRunError] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  const [workflowName, setWorkflowName] = useState("MyWorkflow");
+  const [savedWorkflows, setSavedWorkflows] = useState<string[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     if (!selectedNode) {
@@ -75,6 +79,22 @@ export default function WorkflowPage() {
     setConfigDraft(JSON.stringify(selectedNode.data.config ?? {}, null, 2));
     setConfigError("");
   }, [selectedNode]);
+
+  const refreshSavedWorkflows = async () => {
+    setLoadingSaved(true);
+    try {
+      const res = await listWorkflows();
+      setSavedWorkflows(res.workflows || []);
+    } catch {
+      setSavedWorkflows([]);
+    } finally {
+      setLoadingSaved(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshSavedWorkflows();
+  }, []);
 
   const onNodesChange: OnNodesChange = (changes) => {
     setNodes((current) => applyNodeChanges(changes, current) as Node<WorkflowNodeData>[]);
@@ -168,21 +188,81 @@ export default function WorkflowPage() {
     }
   };
 
+  const handleSaveWorkflow = async () => {
+    const name = workflowName.trim();
+    if (!name) return;
+    setSaveError("");
+    try {
+      await saveWorkflow(name, nodes, edges);
+      await refreshSavedWorkflows();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Failed to save workflow");
+    }
+  };
+
+  const handleLoadWorkflow = async (name: string) => {
+    if (!name) return;
+    try {
+      const data = await loadWorkflow(name);
+      setNodes(data.nodes as Node<WorkflowNodeData>[]);
+      setEdges(data.edges as Edge[]);
+      setRunResult(null);
+      setRunError("");
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : "Failed to load workflow");
+    }
+  };
+
   return (
     <div className="page-container" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <header className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <header className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         <div>
           <h2>Agentic Workflow Builder</h2>
           <p className="page-subtitle">Visually wire triggers, agents, and tools to run autonomously.</p>
         </div>
-        <button className="primary-button" onClick={handleRunWorkflow} disabled={isRunning}>
-          {isRunning ? "Running..." : "Run Workflow"}
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            className="input"
+            value={workflowName}
+            onChange={(event) => setWorkflowName(event.target.value)}
+            placeholder="Workflow name"
+            style={{ width: 180 }}
+          />
+          <button className="btn btn-secondary" onClick={handleSaveWorkflow}>
+            Save
+          </button>
+          <select
+            className="input"
+            value=""
+            onChange={(event) => handleLoadWorkflow(event.target.value)}
+            style={{ width: 180 }}
+          >
+            <option value="" disabled>
+              Load saved...
+            </option>
+            {savedWorkflows.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-secondary" onClick={refreshSavedWorkflows} disabled={loadingSaved}>
+            {loadingSaved ? "Refreshing..." : "Refresh"}
+          </button>
+          <button className="primary-button" onClick={handleRunWorkflow} disabled={isRunning}>
+            {isRunning ? "Running..." : "Run Workflow"}
+          </button>
+        </div>
       </header>
 
       {runError && (
         <div className="card" style={{ marginTop: 16, borderLeft: "4px solid var(--error)" }}>
           <div style={{ color: "var(--error)", fontSize: 13 }}>{runError}</div>
+        </div>
+      )}
+      {saveError && (
+        <div className="card" style={{ marginTop: 16, borderLeft: "4px solid var(--error)" }}>
+          <div style={{ color: "var(--error)", fontSize: 13 }}>{saveError}</div>
         </div>
       )}
 

@@ -11,8 +11,8 @@ from collections import deque
 from typing import Any
 
 from packages.agents.crew import run_crew
+from packages.agents.tools import TOOL_REGISTRY
 from packages.shared.config import settings
-from packages.tools.exec import run_command
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,13 @@ class WorkflowEngine:
 
         if node_type == "tool":
             tool_name = config.get("toolName", "")
-            if tool_name != "toolExecCommand":
+
+            # Backward compatibility alias
+            if tool_name == "toolExecCommand":
+                tool_name = "exec_command"
+
+            tool = TOOL_REGISTRY.get(tool_name)
+            if not tool:
                 return {
                     "status": "error",
                     "label": label,
@@ -155,24 +161,39 @@ class WorkflowEngine:
                     "error": f"Tool {tool_name or 'unknown'} is not implemented.",
                 }
 
-            command = (config.get("command") or "").strip()
-            if not command:
+            args = config.get("args", {}) if isinstance(config.get("args", {}), dict) else {}
+
+            # Legacy exec_command config support
+            if tool_name == "exec_command":
+                command = (config.get("command") or "").strip()
+                if not command:
+                    return {
+                        "status": "error",
+                        "label": label,
+                        "type": node_type,
+                        "error": "Tool node requires a command.",
+                    }
+                args = {
+                    "command": command,
+                    "cwd": config.get("cwd"),
+                    "timeout": int(config.get("timeout", 30)),
+                }
+
+            try:
+                result = await tool["fn"](**args)
+            except Exception as exc:
                 return {
                     "status": "error",
                     "label": label,
                     "type": node_type,
-                    "error": "Tool node requires a command.",
+                    "error": str(exc),
                 }
 
-            cwd = config.get("cwd")
-            timeout = int(config.get("timeout", 30))
-            result = await run_command(command, cwd=cwd, timeout=timeout)
             return {
-                "status": "completed" if result.get("success") else result.get("status", "failed"),
+                "status": "completed" if result.get("success", True) else result.get("status", "failed"),
                 "label": label,
                 "type": node_type,
                 "tool": tool_name,
-                "command": command,
                 "output": result,
             }
 

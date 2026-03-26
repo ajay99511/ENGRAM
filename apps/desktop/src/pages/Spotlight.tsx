@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { chatStream } from "../lib/api";
+import { chatSmartStream } from "../lib/api";
 
 export default function Spotlight() {
     const [query, setQuery] = useState("");
@@ -56,8 +56,10 @@ export default function Spotlight() {
         setLoading(true);
         setAnswer("");
         try {
-            for await (const chunk of chatStream(query, "smart")) {
-                setAnswer((prev) => prev + chunk);
+            for await (const chunk of chatSmartStream(query, "local")) {
+                if (typeof chunk === "string") {
+                    setAnswer((prev) => prev + chunk);
+                }
             }
         } catch (err) {
             setAnswer("Error: " + (err instanceof Error ? err.message : String(err)));

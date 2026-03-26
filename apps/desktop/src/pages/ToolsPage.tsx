@@ -5,6 +5,7 @@ import {
     toolSearchFiles,
     toolRepoSummary,
     toolExecCommand,
+    toolExecApprovedCommand,
     toolCheckCommand,
     listTools,
     type DirEntry,
@@ -416,6 +417,7 @@ function ExecPanel() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [history, setHistory] = useState<Array<{ command: string; result: CommandResult }>>([]);
+    const [pendingApproval, setPendingApproval] = useState<{ command: string; cwd?: string; timeout: number } | null>(null);
 
     const handleCheck = async () => {
         if (!command.trim()) return;
@@ -440,9 +442,34 @@ function ExecPanel() {
                 30,
             );
             setResult(res);
+            if (res.status === "pending_approval") {
+                setPendingApproval({ command: command.trim(), cwd: cwd.trim() || undefined, timeout: 30 });
+            } else {
+                setPendingApproval(null);
+            }
             setHistory((prev) => [{ command: command.trim(), result: res }, ...prev.slice(0, 9)]);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Execution failed");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleApproveAndRun = async () => {
+        if (!pendingApproval || loading) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await toolExecApprovedCommand(
+                pendingApproval.command,
+                pendingApproval.cwd,
+                pendingApproval.timeout,
+            );
+            setResult(res);
+            setPendingApproval(null);
+            setHistory((prev) => [{ command: pendingApproval.command, result: res }, ...prev.slice(0, 9)]);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Approved execution failed");
         } finally {
             setLoading(false);
         }
@@ -473,7 +500,7 @@ function ExecPanel() {
                     <input
                         className="input"
                         value={command}
-                        onChange={(e) => { setCommand(e.target.value); setCheckResult(null); }}
+                        onChange={(e) => { setCommand(e.target.value); setCheckResult(null); setPendingApproval(null); }}
                         onKeyDown={(e) => e.key === "Enter" && handleRun()}
                         onBlur={handleCheck}
                         placeholder="git status, npm run build, python --version..."
@@ -502,7 +529,7 @@ function ExecPanel() {
                         )}
                         {checkResult.requires_approval && (
                             <span className="badge badge-warning">
-                                ⚠️ Manual approval required (not available in this panel)
+                                ⚠️ Approval required
                             </span>
                         )}
                     </div>
@@ -533,8 +560,15 @@ function ExecPanel() {
                     </div>
 
                     {result.status === "pending_approval" && (
-                        <div style={{ marginBottom: 8, fontSize: 13, color: "var(--text-secondary)" }}>
-                            {result.message} This UI currently supports pre-approved commands only.
+                        <div style={{ marginBottom: 8, fontSize: 13, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 12 }}>
+                            <span>{result.message}</span>
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={handleApproveAndRun}
+                                disabled={loading || !pendingApproval}
+                            >
+                                Approve &amp; Run
+                            </button>
                         </div>
                     )}
 

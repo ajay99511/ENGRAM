@@ -84,6 +84,10 @@ export interface ModelInfo {
   pricing_output?: string;
   is_recommended?: boolean;
   api_key_set?: boolean;
+  supports_tool_calls?: boolean;
+  supports_reasoning?: boolean;
+  supports_temperature?: boolean;
+  requires_reasoning_echo?: boolean;
 }
 
 export interface Memory {
@@ -109,6 +113,7 @@ export interface AgentResult {
   research: string;
   model_used: string;
   run_id: string;
+  tool_loop?: Record<string, unknown>;
 }
 
 export interface HealthResponse {
@@ -120,6 +125,8 @@ export interface ToolInfo {
   name: string;
   category: string;
   description: string;
+  risk?: string;
+  schema?: Record<string, unknown>;
 }
 
 export interface FileResult {
@@ -367,6 +374,49 @@ export async function* chatStream(
   }
 }
 
+export async function* chatSmartStream(
+  message: string,
+  model: string = "local",
+  threadId?: string
+): AsyncGenerator<string | { thread_id: string; memory_used?: boolean }, void, undefined> {
+  const res = await fetch(`${API_BASE}/chat/smart/stream`, {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify({ message, model, thread_id: threadId }),
+  });
+
+  if (!res.ok) throw new Error(`Smart stream error: ${res.status}`);
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") return;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.thread_id) yield { thread_id: parsed.thread_id, memory_used: parsed.memory_used };
+          if (parsed.text) yield parsed.text;
+          if (parsed.error) throw new Error(parsed.error);
+        } catch {
+          // non-JSON data line, skip
+        }
+      }
+    }
+  }
+}
+
 export async function getChatThreads(): Promise<{ threads: ChatThread[] }> {
   return api("/chat/threads");
 }
@@ -570,6 +620,17 @@ export async function toolExecCommand(
   });
 }
 
+export async function toolExecApprovedCommand(
+  command: string,
+  cwd?: string,
+  timeout: number = 30
+): Promise<CommandResult> {
+  return api("/tools/exec/approved", {
+    method: "POST",
+    body: JSON.stringify({ command, cwd, timeout }),
+  });
+}
+
 export async function toolCheckCommand(
   command: string
 ): Promise<CommandCheckResult> {
@@ -658,6 +719,10 @@ export async function listWorkflows(): Promise<{ workflows: string[] }> {
   return api("/workflows/list");
 }
 
+export async function loadWorkflow(name: string): Promise<{ name: string; nodes: any[]; edges: any[] }> {
+  return api(`/workflows/load/${encodeURIComponent(name)}`);
+}
+
 // ── Context Sensing ────────────────────────────────────────────────
 
 export async function getActiveContext(): Promise<any> {
@@ -682,4 +747,3 @@ export async function triggerSync(): Promise<{
 export async function getSyncStatus(): Promise<SyncStatus> {
   return api("/sync/status");
 }
-

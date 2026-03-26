@@ -10,6 +10,7 @@ Handles:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from typing import Any
@@ -20,6 +21,10 @@ from qdrant_client.models import (
     Distance,
     PointStruct,
     VectorParams,
+    Filter,
+    FieldCondition,
+    MatchValue,
+    MatchAny,
 )
 
 from packages.shared.config import settings
@@ -48,11 +53,13 @@ def _get_client() -> QdrantClient:
 async def init_collections() -> None:
     """Create the default collection if it doesn't exist."""
     client = _get_client()
-    collections = client.get_collections().collections
+    collections = await asyncio.to_thread(client.get_collections)
+    collections = collections.collections
     existing = {c.name for c in collections}
 
     if COLLECTION not in existing:
-        client.create_collection(
+        await asyncio.to_thread(
+            client.create_collection,
             collection_name=COLLECTION,
             vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
         )
@@ -64,7 +71,8 @@ async def init_collections() -> None:
 async def health_check() -> list[str]:
     """Return list of existing collection names (proves connectivity)."""
     client = _get_client()
-    collections = client.get_collections().collections
+    collections = await asyncio.to_thread(client.get_collections)
+    collections = collections.collections
     return [c.name for c in collections]
 
 
@@ -88,13 +96,17 @@ async def upsert(
     embedding = await _embed(text)
 
     if point_id is None:
-        # Deterministic ID from content hash to avoid duplicates
-        point_id = hashlib.sha256(text.encode()).hexdigest()[:32]
+        # Deterministic ID from content + source metadata to avoid collisions
+        source = metadata.get("source_path", "")
+        chunk_idx = metadata.get("chunk_index", "")
+        seed = f"{source}::{chunk_idx}\n{text}" if source else text
+        point_id = hashlib.sha256(seed.encode()).hexdigest()[:32]
 
     # Store the original text in metadata for retrieval
     metadata["_content"] = text
 
-    client.upsert(
+    await asyncio.to_thread(
+        client.upsert,
         collection_name=COLLECTION,
         points=[
             PointStruct(
@@ -122,11 +134,15 @@ async def search(
     client = _get_client()
     query_vector = await _embed(query)
 
-    results = client.query_points(
+    query_filter = _build_filter(filter_conditions)
+    results = await asyncio.to_thread(
+        client.query_points,
         collection_name=COLLECTION,
         query=query_vector,
         limit=k,
-    ).points
+        query_filter=query_filter,
+    )
+    results = results.points
 
     return [
         {
@@ -137,6 +153,25 @@ async def search(
         }
         for hit in results
     ]
+
+
+def _build_filter(filter_conditions: dict | None) -> Filter | None:
+    """Build a Qdrant filter from a simple dict of conditions."""
+    if not filter_conditions:
+        return None
+
+    must: list[FieldCondition] = []
+    for key, value in filter_conditions.items():
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple, set)):
+            values = [v for v in value if v is not None]
+            if values:
+                must.append(FieldCondition(key=key, match=MatchAny(any=values)))
+        else:
+            must.append(FieldCondition(key=key, match=MatchValue(value=value)))
+
+    return Filter(must=must) if must else None
 
 
 # ── Embedding via Ollama ─────────────────────────────────────────────

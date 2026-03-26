@@ -45,8 +45,19 @@ export default function ModelsPage() {
     };
 
     const localModels = models.filter((m) => m.is_local);
-    const geminiModels = models.filter((m) => !m.is_local && m.provider === 'gemini');
-    const otherRemote = models.filter((m) => !m.is_local && m.provider !== 'gemini');
+    const remoteGroups = models
+        .filter((m) => !m.is_local)
+        .reduce<Record<string, ModelInfo[]>>((acc, model) => {
+            const key = model.provider || "remote";
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(model);
+            return acc;
+        }, {});
+
+    const providerLabel = (provider: string) => {
+        const title = provider.charAt(0).toUpperCase() + provider.slice(1);
+        return `☁️ ${title} Models`;
+    };
 
     const renderModelCard = (m: ModelInfo) => {
         const isActive = m.id === activeModelId || m.is_active;
@@ -81,6 +92,12 @@ export default function ModelsPage() {
 
                 <div className="model-detail">
                     <strong>Provider:</strong> {m.provider}
+                </div>
+
+                <div className="model-detail" style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    {m.supports_tool_calls && <span className="badge">🛠 Tool Calls</span>}
+                    {m.supports_reasoning && <span className="badge">🧠 Reasoning</span>}
+                    {m.requires_reasoning_echo && <span className="badge">↩ Reasoning Echo</span>}
                 </div>
 
                 {m.context_window && (
@@ -222,9 +239,8 @@ export default function ModelsPage() {
                             </>
                         )}
 
-                        {/* Gemini Models */}
-                        {geminiModels.length > 0 && (
-                            <>
+                        {Object.entries(remoteGroups).map(([provider, providerModels]) => (
+                            <div key={provider}>
                                 <h3
                                     style={{
                                         fontSize: 13,
@@ -235,34 +251,13 @@ export default function ModelsPage() {
                                         marginBottom: 12,
                                     }}
                                 >
-                                    ☁️ Gemini Models
+                                    {providerLabel(provider)}
                                 </h3>
                                 <div className="models-grid" style={{ marginBottom: 24 }}>
-                                    {geminiModels.map(renderModelCard)}
+                                    {providerModels.map(renderModelCard)}
                                 </div>
-                            </>
-                        )}
-
-                        {/* Other Remote Models */}
-                        {otherRemote.length > 0 && (
-                            <>
-                                <h3
-                                    style={{
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        color: "var(--text-muted)",
-                                        textTransform: "uppercase",
-                                        letterSpacing: 0.5,
-                                        marginBottom: 12,
-                                    }}
-                                >
-                                    🌐 Other Remote Models
-                                </h3>
-                                <div className="models-grid">
-                                    {otherRemote.map(renderModelCard)}
-                                </div>
-                            </>
-                        )}
+                            </div>
+                        ))}
                     </>
                 )}
             </div>

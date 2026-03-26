@@ -5,6 +5,7 @@ import {
     chatSmart,
     chatPlain,
     chatStream,
+    chatSmartStream,
     listModels,
     getActiveModel,
     getActiveContext,
@@ -171,9 +172,23 @@ export default function ChatPage() {
                 setMessages((prev) => [...prev, streamingMsg]);
 
                 let firstChunk = true;
-                for await (const chunk of chatStream(text, selectedModelId, currentThreadId || undefined)) {
+                const streamFn = smartMode ? chatSmartStream : chatStream;
+                for await (const chunk of streamFn(text, selectedModelId, currentThreadId || undefined)) {
                     if (typeof chunk === 'object' && chunk !== null && 'thread_id' in chunk) {
                         if (!currentThreadId) setCurrentThreadId(chunk.thread_id);
+                        if ("memory_used" in chunk) {
+                            setMessages((prev) => {
+                                const updated = [...prev];
+                                const last = updated[updated.length - 1];
+                                if (last.role === "assistant") {
+                                    updated[updated.length - 1] = {
+                                        ...last,
+                                        memoryUsed: Boolean(chunk.memory_used),
+                                    };
+                                }
+                                return updated;
+                            });
+                        }
                         continue;
                     }
 
@@ -244,8 +259,19 @@ export default function ChatPage() {
 
     // Group models for the dropdown
     const localModels = availableModels.filter(m => m.is_local);
-    const geminiModels = availableModels.filter(m => !m.is_local && m.provider === 'gemini');
-    const otherRemote = availableModels.filter(m => !m.is_local && m.provider !== 'gemini');
+    const remoteGroups = availableModels
+        .filter(m => !m.is_local)
+        .reduce<Record<string, ModelInfo[]>>((acc, model) => {
+            const key = model.provider || "remote";
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(model);
+            return acc;
+        }, {});
+
+    const providerLabel = (provider: string) => {
+        const title = provider.charAt(0).toUpperCase() + provider.slice(1);
+        return `☁️ ${title}`;
+    };
 
     return (
         <div style={{ display: 'flex', height: '100%', width: '100%', overflow: 'hidden' }}>
@@ -451,10 +477,7 @@ export default function ChatPage() {
                             <input
                                 type="checkbox"
                                 checked={smartMode}
-                                onChange={(e) => {
-                                    setSmartMode(e.target.checked);
-                                    if (e.target.checked) setStreamMode(false);
-                                }}
+                                onChange={(e) => setSmartMode(e.target.checked)}
                             />
                             <span className="toggle-slider" />
                         </label>
@@ -466,10 +489,7 @@ export default function ChatPage() {
                             <input
                                 type="checkbox"
                                 checked={streamMode}
-                                onChange={(e) => {
-                                    setStreamMode(e.target.checked);
-                                    if (e.target.checked) setSmartMode(false);
-                                }}
+                                onChange={(e) => setStreamMode(e.target.checked)}
                             />
                             <span className="toggle-slider" />
                         </label>
@@ -493,20 +513,13 @@ export default function ChatPage() {
                                         ))}
                                     </optgroup>
                                 )}
-                                {geminiModels.length > 0 && (
-                                    <optgroup label="☁️ Gemini Models">
-                                        {geminiModels.map(m => (
+                                {Object.entries(remoteGroups).map(([provider, providerModels]) => (
+                                    <optgroup key={provider} label={providerLabel(provider)}>
+                                        {providerModels.map(m => (
                                             <option key={m.id} value={m.id}>{m.name || m.id}</option>
                                         ))}
                                     </optgroup>
-                                )}
-                                {otherRemote.length > 0 && (
-                                    <optgroup label="🌐 Other Remote">
-                                        {otherRemote.map(m => (
-                                            <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                                        ))}
-                                    </optgroup>
-                                )}
+                                ))}
                             </select>
                         )}
                     </div>

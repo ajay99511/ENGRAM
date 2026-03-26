@@ -31,6 +31,7 @@ from packages.agents.podcast_crew import (
     PodcastRequest,
     run_podcast_crew,
 )
+from packages.shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ podcast_router = APIRouter(
 
 _jobs: dict[str, PodcastJob] = {}
 _MAX_JOBS = 50  # Keep last N jobs in memory
+_JOB_STORE_PATH = Path(settings.data_dir) / "podcast_jobs.json"
 
 
 def _cleanup_jobs() -> None:
@@ -56,6 +58,37 @@ def _cleanup_jobs() -> None:
         )
         for jid in sorted_ids[: len(_jobs) - _MAX_JOBS]:
             _jobs.pop(jid, None)
+
+
+def _save_jobs() -> None:
+    """Persist job metadata to disk."""
+    try:
+        _JOB_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        data = [job.model_dump() for job in _jobs.values()]
+        _JOB_STORE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("Failed to save podcast jobs: %s", exc)
+
+
+def _load_jobs() -> None:
+    """Load job metadata from disk into memory."""
+    try:
+        if _JOB_STORE_PATH.exists():
+            raw = _JOB_STORE_PATH.read_text(encoding="utf-8")
+            items = json.loads(raw)
+            for item in items:
+                job = PodcastJob(**item)
+                _jobs[job.job_id] = job
+    except Exception as exc:
+        logger.warning("Failed to load podcast jobs: %s", exc)
+
+
+# Load persisted jobs on import
+_load_jobs()
+
+
+async def _save_jobs_async() -> None:
+    await asyncio.to_thread(_save_jobs)
 
 
 # ── Request / Response Models ────────────────────────────────────────
@@ -100,23 +133,27 @@ async def generate_podcast(req: PodcastRequest):
     )
     _jobs[job_id] = job
     _cleanup_jobs()
+    await _save_jobs_async()
 
     # Progress callback that updates the in-memory job AND emits trace events
     async def _on_progress(status: str, pct: int) -> None:
         if job_id in _jobs:
             _jobs[job_id].status = status
             _jobs[job_id].progress_pct = pct
+            await _save_jobs_async()
 
     # Fire and forget the generation
     async def _run():
         try:
             result = await run_podcast_crew(req, job_id, on_progress=_on_progress)
             _jobs[job_id] = result
+            await _save_jobs_async()
         except Exception as exc:
             logger.error("Podcast job %s failed: %s", job_id, exc)
             if job_id in _jobs:
                 _jobs[job_id].status = "error"
                 _jobs[job_id].error = str(exc)
+                await _save_jobs_async()
 
     asyncio.create_task(_run())
 
