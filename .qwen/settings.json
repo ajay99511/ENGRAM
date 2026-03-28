@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv\\scripts\\python.exe *)",
+      "Bash(timeout *)",
+      "Bash(set *)",
+      "Bash(npm install *)",
+      "Bash(docker-compose *)"
+    ]
+  },
+  "$version": 3
+}

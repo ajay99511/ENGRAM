@@ -7,11 +7,12 @@ import ModelsPage from "./pages/ModelsPage";
 import AgentsPage from "./pages/AgentsPage";
 import IngestionPage from "./pages/IngestionPage";
 import PodcastPage from "./pages/PodcastPage";
+import WorkspacePage from "./pages/WorkspacePage";
 import { checkHealth } from "./lib/api";
 import { register } from "@tauri-apps/plugin-global-shortcut";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-type Page = "chat" | "memory" | "models" | "agents" | "ingest" | "podcast";
+type Page = "chat" | "memory" | "models" | "agents" | "ingest" | "podcast" | "workspace";
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "chat", label: "Chat", icon: "💬" },
@@ -20,6 +21,7 @@ const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: "agents", label: "Agents", icon: "🤖" },
   { id: "ingest", label: "Ingestion", icon: "📥" },
   { id: "podcast", label: "Podcast", icon: "🎙️" },
+  { id: "workspace", label: "Workspace", icon: "📁" },
 ];
 
 function App() {
@@ -78,6 +80,8 @@ function App() {
         return <IngestionPage />;
       case "podcast":
         return <PodcastPage />;
+      case "workspace":
+        return <WorkspacePage />;
     }
   };
 

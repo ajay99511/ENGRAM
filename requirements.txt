@@ -39,3 +39,14 @@ beautifulsoup4>=4.12.0
 # elevenlabs>=1.0.0
 sqlalchemy>=2.0.0
 aiosqlite>=0.20.0
+
+# === Background Tasks (Phase 3) ===
+arq==0.25.0
+redis>=5.0.0
+
+# === Messaging (Phase 4) ===
+python-telegram-bot>=20.0
+httpx>=0.28.0
+
+# === Sandboxing (Phase 8, Optional) ===
+# docker>=7.0.0

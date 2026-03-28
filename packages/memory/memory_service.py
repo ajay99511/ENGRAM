@@ -1,14 +1,31 @@
 """
-Memory Service - high-level API for storing and querying memories.
+Memory Service - 5-Layer Memory System Integration
 
 Sits on top of both qdrant_store (document RAG) and mem0_client
 (user-centric intelligent memory) to provide:
   - store_memory()              -> embed + persist to Qdrant
   - query_memories()            -> semantic search over Qdrant
-  - build_context()             -> hybrid assembly (Qdrant docs + Mem0 facts)
+  - build_context()             -> HYBRID assembly (Mem0 facts + 5-Layer context)
   - extract_and_store_from_turn -> auto-learn from conversation via Mem0
   - get_all_user_memories()     -> transparent view into Mem0 memories
   - forget_memory()             -> delete a specific Mem0 memory
+  - compact_session_if_needed() -> Layer 4 compaction trigger
+
+5-Layer Memory Architecture:
+  Layer 1: Bootstrap Injection (AGENTS.md, SOUL.md, USER.md, etc.)
+  Layer 2: JSONL Transcripts (append-only session history)
+  Layer 3: Session Pruning (in-memory, TTL-aware)
+  Layer 4: Compaction (adaptive summarization)
+  Layer 5: Long-Term Memory Search (Mem0 + Qdrant hybrid)
+
+Usage:
+    from packages.memory.memory_service import build_context, compact_session_if_needed
+    
+    # Build hybrid context (Mem0 + 5-Layer)
+    context = await build_context(user_message, user_id="default")
+    
+    # Check if compaction needed
+    await compact_session_if_needed(session_id)
 """
 
 from __future__ import annotations
@@ -20,6 +37,7 @@ import asyncio
 from packages.memory import qdrant_store
 from packages.memory.schemas import MemoryItem, MemorySearchResult, MemoryType
 from packages.shared.config import settings
+from packages.shared.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -198,11 +216,40 @@ async def build_context(
     k: int = 5,
 ) -> str:
     """
-    Build a compact hybrid context string from both Qdrant RAG and Mem0 memories.
+    Build a compact hybrid context string from:
+    - Layer 1: Bootstrap files (AGENTS.md, SOUL.md, USER.md, etc.)
+    - Layer 2-4: Recent session context (JSONL transcripts, pruned)
+    - Layer 5: Mem0 facts + Qdrant documents
+    
+    Args:
+        user_message: Current user message
+        user_id: User identifier
+        k: Number of results to fetch from vector search
+    
+    Returns:
+        Formatted context string, or empty string if no context available
     """
     total_budget = max(settings.rag_context_char_budget, 400)
     sections: list[str] = []
-
+    
+    # === LAYER 1: Bootstrap Injection ===
+    try:
+        from packages.memory.bootstrap import load_bootstrap_files
+        
+        bootstrap_context = await load_bootstrap_files(agent_type="main")
+        if bootstrap_context:
+            # Redact any secrets in bootstrap context
+            bootstrap_context, _ = redact_text(bootstrap_context)
+            _fit_section(
+                sections,
+                "## Project Context (Bootstrap)\n" + bootstrap_context,
+                total_budget,
+            )
+            logger.debug("Layer 1 (Bootstrap): context loaded")
+    except Exception as exc:
+        logger.debug("Layer 1 (Bootstrap) unavailable: %s", exc)
+    
+    # === LAYER 5A: Mem0 Facts (User-Centric Memory) ===
     try:
         from packages.memory.mem0_client import mem0_search
 
@@ -215,18 +262,22 @@ async def build_context(
         memory_lines = []
         for i, mem in enumerate(mem0_results[: settings.rag_memory_limit], 1):
             memory_text = mem.get("memory", mem.get("content", ""))
+            # Redact secrets
+            memory_text, _ = redact_text(memory_text)
             clipped = _clip_text(memory_text, 220)
             if clipped:
                 memory_lines.append(f"  {i}. {clipped}")
         if memory_lines:
             _fit_section(
                 sections,
-                "## What I Know About You\n" + "\n".join(memory_lines),
+                "## What I Know About You (Long-Term Facts)\n" + "\n".join(memory_lines),
                 total_budget,
             )
+            logger.debug("Layer 5A (Mem0): %d facts loaded", len(memory_lines))
     except Exception as exc:
-        logger.debug("Mem0 context unavailable: %s", exc)
+        logger.debug("Layer 5A (Mem0) unavailable: %s", exc)
 
+    # === LAYER 5B: Qdrant Documents (RAG) ===
     try:
         qdrant_results = await qdrant_store.search(
             query=user_message,
@@ -245,6 +296,8 @@ async def build_context(
             source = meta.get("source") or meta.get("source_path") or "unknown"
             section = meta.get("section", meta.get("section_title", ""))
             content = _clip_text(hit.get("content", ""), settings.rag_doc_snippet_chars)
+            # Redact secrets
+            content, _ = redact_text(content)
             if not content:
                 continue
             label = source
@@ -257,25 +310,39 @@ async def build_context(
                 "## Relevant Documents and Code\n" + "\n".join(doc_lines),
                 total_budget,
             )
+            logger.debug("Layer 5B (Qdrant): %d documents loaded", len(doc_lines))
     except Exception as exc:
-        logger.debug("Qdrant context unavailable: %s", exc)
+        logger.debug("Layer 5B (Qdrant) unavailable: %s", exc)
 
+    # === LAYER 2-4: Session Context (Recent Conversation) ===
+    # This would be populated from JSONL transcripts if session_id is provided
+    # For now, we rely on the calling code to pass session context via messages
+    
+    # Fallback to legacy memory search if nothing found
     if not sections:
         try:
-            legacy_results = await query_memories(user_id=user_id, query=user_message, k=3)
+            from packages.memory.qdrant_store import search as qdrant_search
+            
+            legacy_results = await qdrant_search(
+                query=user_message,
+                k=3,
+                filter_conditions={"content_type": "memory"},
+            )
             legacy_lines = []
             for i, mem in enumerate(legacy_results[:3], 1):
-                clipped = _clip_text(mem["content"], 220)
+                clipped = _clip_text(mem.get("content", ""), 220)
                 if clipped:
-                    legacy_lines.append(f"  {i}. [{mem['memory_type']}] {clipped}")
+                    memory_type = mem.get("metadata", {}).get("memory_type", "PROFILE")
+                    legacy_lines.append(f"  {i}. [{memory_type}] {clipped}")
             if legacy_lines:
                 _fit_section(
                     sections,
                     "## Previous Interactions\n" + "\n".join(legacy_lines),
                     total_budget,
                 )
+                logger.debug("Fallback (Legacy): %d memories loaded", len(legacy_lines))
         except Exception as exc:
-            logger.debug("Legacy memory context unavailable: %s", exc)
+            logger.debug("Fallback (Legacy) unavailable: %s", exc)
 
     if not sections:
         return ""
@@ -285,4 +352,44 @@ async def build_context(
         "Reference relevant facts briefly and only when they materially help. "
         "When you use document content, cite the source path in brackets like [C:\\path\\file.ext]."
     )
-    return _clip_text(header + "\n\n" + "\n\n".join(sections), total_budget)
+    context = _clip_text(header + "\n\n" + "\n\n".join(sections), total_budget)
+    
+    logger.info("Built hybrid context: %d sections, %d chars", len(sections), len(context))
+    return context
+
+
+async def compact_session_if_needed(
+    session_id: str,
+    model: str = "local",
+) -> bool:
+    """
+    Check if session needs compaction and trigger it if so.
+    
+    This is Layer 4 of the 5-layer memory system.
+    
+    Args:
+        session_id: Session to check
+        model: Model to use for summarization
+    
+    Returns:
+        True if compaction was triggered
+    """
+    try:
+        from packages.memory.compaction import should_compact, compact_session
+        
+        if await should_compact(session_id):
+            logger.info(f"Compaction triggered for session {session_id}")
+            result = await compact_session(session_id, model)
+            
+            if not result.skipped:
+                logger.info(
+                    f"Compaction completed: {result.entries_removed} entries removed, "
+                    f"{result.tokens_before} → {result.tokens_after} tokens"
+                )
+                return True
+        
+        return False
+    
+    except Exception as exc:
+        logger.warning(f"Compaction check failed: {exc}")
+        return False

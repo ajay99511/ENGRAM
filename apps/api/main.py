@@ -101,6 +101,22 @@ async def enforce_api_access_token(request: Request, call_next):
 from apps.api.podcast_router import podcast_router
 app.include_router(podcast_router)
 
+# ── Workspace Router ──────────────────────────────────────────────────
+from apps.api.workspace_router import router as workspace_router
+app.include_router(workspace_router)
+
+# ── Job Monitoring Router ─────────────────────────────────────────────
+from apps.api.job_router import router as job_router
+app.include_router(job_router)
+
+# ── Telegram Webhook Router ───────────────────────────────────────────
+try:
+    from packages.messaging.telegram_webhook import router as telegram_webhook_router
+    app.include_router(telegram_webhook_router)
+    logger.info("Telegram webhook router included")
+except ImportError as exc:
+    logger.warning(f"Telegram webhook router not available: {exc}")
+
 # ── Request / Response Models ────────────────────────────────────────
 
 
