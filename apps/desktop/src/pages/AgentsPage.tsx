@@ -1,3 +1,12 @@
+/**
+ * Agents Page - Expanded with A2A tab
+ * 
+ * Tabs:
+ * - Agent Crew - Run Planner → Researcher → Synthesizer pipeline
+ * - A2A Agents - Discover and delegate to Tier 1 agents
+ * - Execution Trace - View agent execution trace
+ */
+
 import { useState, useRef, useEffect } from "react";
 import {
     runAgent,
@@ -8,14 +17,20 @@ import {
     type AgentResult,
     type ModelInfo,
 } from "../lib/api";
+import A2AAgentsTab from "../components/agents/A2AAgentsTab";
+import AgentTraceViewer from "../components/agents/AgentTraceViewer";
+
+type AgentsTab = 'crew' | 'a2a' | 'trace';
 
 export default function AgentsPage() {
+    const [activeTab, setActiveTab] = useState<AgentsTab>('crew');
     const [input, setInput] = useState("");
     const [model, setModel] = useState("local");
     const [loading, setLoading] = useState(false);
     const [traces, setTraces] = useState<TraceEvent[]>([]);
     const [result, setResult] = useState<AgentResult | null>(null);
     const [models, setModels] = useState<ModelInfo[]>([]);
+    const [currentRunId, setCurrentRunId] = useState<string | null>(null);
     const traceEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -52,6 +67,7 @@ export default function AgentsPage() {
         try {
             const res = await runAgent(text, model);
             setResult(res);
+            setCurrentRunId(res.run_id);
 
             const streamed: TraceEvent[] = [];
             try {
@@ -102,201 +118,149 @@ export default function AgentsPage() {
             }
         } catch (err) {
             const errorTrace: TraceEvent = {
-                run_id: "error",
+                run_id: "",
                 agent_name: "system",
                 event_type: "error",
-                content: err instanceof Error ? err.message : "Agent run failed",
+                content: err instanceof Error ? err.message : "Unknown error",
                 timestamp: new Date().toISOString(),
                 metadata: {},
             };
-            setTraces([errorTrace]);
+            setTraces((prev) => [...prev, errorTrace]);
         } finally {
             setLoading(false);
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             handleRun();
         }
     };
 
-    const getEventIcon = (type: string) => {
-        switch (type) {
-            case "thinking": return "💭";
-            case "tool_call": return "🔧";
-            case "tool_result": return "📋";
-            case "output": return "✅";
-            case "error": return "❌";
-            default: return "📝";
-        }
-    };
-
-    const getAgentColor = (name: string) => {
-        switch (name) {
-            case "planner": return "#818cf8";
-            case "researcher": return "#60a5fa";
-            case "synthesizer": return "#34d399";
-            case "system": return "#94a3b8";
-            default: return "#fbbf24";
-        }
-    };
-
-    const selectedModel = models.find(m => m.id === model);
-    const localModels = models.filter(m => m.is_local);
-    const remoteGroups = models
-        .filter(m => !m.is_local)
-        .reduce<Record<string, ModelInfo[]>>((acc, m) => {
-            const key = m.provider || "remote";
-            if (!acc[key]) acc[key] = [];
-            acc[key].push(m);
-            return acc;
-        }, {});
-
     return (
-        <>
-            <div className="page-header">
-                <div>
-                    <div className="page-title">Agents</div>
-                    <div className="page-subtitle">
-                        Run the multi-agent crew pipeline: Planner → Researcher → Synthesizer
-                    </div>
-                </div>
+        <div style={{ padding: '20px', height: '100%', overflow: 'auto' }}>
+            {/* Tabs */}
+            <div style={{ 
+                display: 'flex', 
+                gap: '8px', 
+                marginBottom: '24px',
+                borderBottom: '1px solid var(--border)',
+                paddingBottom: '12px',
+            }}>
+                <button
+                    className={`btn ${activeTab === 'crew' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setActiveTab('crew')}
+                >
+                    🎯 Agent Crew
+                </button>
+                <button
+                    className={`btn ${activeTab === 'a2a' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setActiveTab('a2a')}
+                >
+                    🤖 A2A Agents
+                </button>
+                <button
+                    className={`btn ${activeTab === 'trace' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setActiveTab('trace')}
+                >
+                    📊 Execution Trace
+                </button>
             </div>
 
-            <div className="page-body">
-                {/* Input */}
-                <div className="card" style={{ marginBottom: 20 }}>
-                    <div className="card-title">Run Agent Crew</div>
-                    <div className="card-subtitle" style={{ marginBottom: 12 }}>
-                        Send a complex query to the multi-agent pipeline for deep analysis
+            {/* Tab Content */}
+            {activeTab === 'crew' && (
+                <div>
+                    <div style={{ marginBottom: '24px' }}>
+                        <h3 style={{ margin: '0 0 8px 0' }}>Agent Crew</h3>
+                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                            Run the Planner → Researcher → Synthesizer pipeline
+                        </p>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                        <select
+                    {/* Input */}
+                    <div style={{ marginBottom: '24px' }}>
+                        <textarea
                             className="input"
-                            value={model}
-                            onChange={(e) => setModel(e.target.value)}
-                            style={{ width: 160, flex: "none" }}
-                        >
-                            {localModels.length > 0 && (
-                                <optgroup label="🖥️ Local">
-                                    {localModels.map((m) => (
-                                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                                    ))}
-                                </optgroup>
-                            )}
-                            {Object.entries(remoteGroups).map(([provider, providerModels]) => (
-                                <optgroup key={provider} label={`☁️ ${provider}`}>
-                                    {providerModels.map((m) => (
-                                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                                    ))}
-                                </optgroup>
-                            ))}
-                            <option value="active">Active Model</option>
-                        </select>
-                    </div>
-
-                    {selectedModel && (
-                        <div className="card-subtitle" style={{ marginBottom: 8 }}>
-                            {selectedModel.supports_tool_calls ? "Tool-calling enabled." : "Tool-calling may be routed to a compatible model."}
-                            {selectedModel.requires_reasoning_echo ? " Reasoning echo continuity is enabled for this model." : ""}
-                        </div>
-                    )}
-
-                    <div className="input-group">
-                        <input
-                            className="input"
-                            placeholder="Ask the crew something complex..."
+                            placeholder="Describe your task or question..."
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
                             disabled={loading}
-                            id="agent-input"
+                            rows={4}
+                            style={{ width: '100%', resize: 'vertical' }}
                         />
-                        <button
-                            className="btn btn-primary"
-                            onClick={handleRun}
-                            disabled={loading || !input.trim()}
-                            id="agent-run"
-                        >
-                            {loading ? (
-                                <>
-                                    <span className="spinner" /> Running...
-                                </>
-                            ) : (
-                                "🚀 Run Crew"
-                            )}
-                        </button>
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                            <button
+                                className="btn btn-primary"
+                                onClick={handleRun}
+                                disabled={loading || !input.trim()}
+                            >
+                                {loading ? 'Running Agent...' : '🚀 Run Agent Crew'}
+                            </button>
+                            <select
+                                className="input"
+                                value={model}
+                                onChange={(e) => setModel(e.target.value)}
+                                disabled={loading}
+                            >
+                                {models.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                        {m.name || m.id}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
-                </div>
 
-                {/* Trace Timeline */}
-                {traces.length > 0 && (
-                    <>
-                        <h3
-                            style={{
-                                fontSize: 13,
-                                fontWeight: 600,
-                                color: "var(--text-muted)",
-                                textTransform: "uppercase",
-                                letterSpacing: 0.5,
-                                marginBottom: 12,
-                            }}
-                        >
-                            Agent Execution Trace
-                            {result && (
-                                <span className="badge badge-accent" style={{ marginLeft: 8, textTransform: "none" }}>
-                                    Run: {result.run_id}
-                                </span>
-                            )}
-                        </h3>
+                    {/* Result */}
+                    {result && (
+                        <div style={{ marginBottom: '24px' }}>
+                            <h4 style={{ margin: '0 0 12px 0' }}>Result</h4>
+                            <div className="markdown-body" style={{
+                                background: 'var(--bg-secondary)',
+                                padding: '16px',
+                                borderRadius: '8px',
+                            }}>
+                                {result.response}
+                            </div>
+                        </div>
+                    )}
 
-                        <div className="trace-timeline">
-                            {traces.map((t, i) => (
-                                <div
-                                    key={i}
-                                    className={`trace-event ${t.event_type}`}
-                                >
-                                    <div className="trace-header">
-                                        <span style={{ fontSize: 14 }}>{getEventIcon(t.event_type)}</span>
-                                        <span
-                                            className="trace-agent"
-                                            style={{ color: getAgentColor(t.agent_name) }}
-                                        >
-                                            {t.agent_name}
-                                        </span>
-                                        <span className="trace-type">{t.event_type}</span>
+                    {/* Trace */}
+                    {traces.length > 0 && (
+                        <div>
+                            <h4 style={{ margin: '0 0 12px 0' }}>Execution Trace</h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {traces.map((trace, i) => (
+                                    <div
+                                        key={i}
+                                        style={{
+                                            background: 'var(--bg-secondary)',
+                                            padding: '12px',
+                                            borderRadius: '8px',
+                                            border: `1px solid var(--border)`,
+                                        }}
+                                    >
+                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                            <span className="badge badge-accent">{trace.agent_name}</span>
+                                            {' '}{trace.event_type} • {new Date(trace.timestamp).toLocaleTimeString()}
+                                        </div>
+                                        <div style={{ fontSize: '13px', whiteSpace: 'pre-wrap' }}>
+                                            {trace.content}
+                                        </div>
                                     </div>
-                                    <div className="trace-content">{t.content}</div>
-                                    <div className="trace-time">
-                                        {new Date(t.timestamp).toLocaleTimeString([], {
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                            second: "2-digit",
-                                        })}
-                                    </div>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
                             <div ref={traceEndRef} />
                         </div>
-                    </>
-                )}
+                    )}
+                </div>
+            )}
 
-                {/* Empty State */}
-                {traces.length === 0 && !loading && (
-                    <div className="empty-state">
-                        <div className="empty-state-icon">🤖</div>
-                        <div className="empty-state-title">No Agent Runs Yet</div>
-                        <div className="empty-state-text">
-                            Submit a query above to trigger the Planner → Researcher →
-                            Synthesizer pipeline. You'll see the recorded trace of each agent's
-                            work.
-                        </div>
-                    </div>
-                )}
-            </div>
-        </>
+            {activeTab === 'a2a' && <A2AAgentsTab />}
+
+            {activeTab === 'trace' && <AgentTraceViewer runId={currentRunId} />}
+        </div>
     );
 }

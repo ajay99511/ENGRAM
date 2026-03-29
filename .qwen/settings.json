@@ -5,7 +5,12 @@
       "Bash(timeout *)",
       "Bash(set *)",
       "Bash(npm install *)",
-      "Bash(docker-compose *)"
+      "Bash(docker-compose *)",
+      "Bash(move *)",
+      "Bash(.venv\\scripts\\pip *)",
+      "Bash(.venv\\scripts\\python *)",
+      "Bash(curl *)",
+      "Bash(python *)"
     ]
   },
   "$version": 3

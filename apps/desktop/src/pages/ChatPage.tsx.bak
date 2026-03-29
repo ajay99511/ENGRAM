@@ -1,26 +1,22 @@
-/**
- * Chat Page - Migrated to TanStack Query
- * 
- * Uses React Query hooks for data fetching while preserving
- * all chat functionality (streaming, smart mode, threads, etc.)
- */
-
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     chatSmart,
     chatPlain,
     chatStream,
     chatSmartStream,
+    listModels,
+    getActiveModel,
     getActiveContext,
     clearActiveContext,
+    getChatThreads,
+    getChatThread,
+    deleteChatThread,
     type ChatThread,
     type ChatResponse,
     type ModelInfo,
 } from "../lib/api";
-import { useModels, useActiveModel, useChatThreads, useDeleteChatThread } from "../lib/hooks";
 
 interface Message {
     id?: string;
@@ -32,77 +28,74 @@ interface Message {
 }
 
 export default function ChatPage() {
-    const queryClient = useQueryClient();
-    
-    // Use TanStack Query hooks
-    const { data: modelsData } = useModels();
-    const { data: activeModelData } = useActiveModel();
-    const { data: threadsData, refetch: refetchThreads } = useChatThreads();
-    const deleteThread = useDeleteChatThread();
-    
-    // Local state
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [smartMode, setSmartMode] = useState(true);
     const [streamMode, setStreamMode] = useState(false);
+
+    // Model state
+    const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
     const [selectedModelId, setSelectedModelId] = useState("");
+    const [isFetchingModels, setIsFetchingModels] = useState(false);
+
+    // Active Context state
     const [activeContext, setActiveContext] = useState<any>(null);
+
+    // Thread state
+    const [threads, setThreads] = useState<ChatThread[]>([]);
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    // Set selected model from active model
+    // Initial fetch
     useEffect(() => {
-        if (activeModelData?.active_model) {
-            setSelectedModelId(activeModelData.active_model);
-        }
-    }, [activeModelData]);
-
-    // Load threads from query data
-    const threads: ChatThread[] = threadsData?.threads || [];
-
-    // Initial context fetch
-    useEffect(() => {
-        const fetchContext = async () => {
+        let mounted = true;
+        const fetchInitialData = async () => {
+            setIsFetchingModels(true);
             try {
-                const contextData = await getActiveContext();
-                if (Object.keys(contextData).length > 0) {
-                    setActiveContext(contextData);
+                const [modelData, activeData, contextData, threadsData] = await Promise.all([
+                    listModels(),
+                    getActiveModel(),
+                    getActiveContext(),
+                    getChatThreads().catch(() => ({ threads: [] })) // Graceful fallback
+                ]);
+                if (mounted) {
+                    setAvailableModels(modelData.models || []);
+                    setSelectedModelId(activeData.active_model || "local");
+                    if (Object.keys(contextData).length > 0) {
+                        setActiveContext(contextData);
+                    }
+                    setThreads(threadsData.threads || []);
                 }
             } catch (err) {
-                console.error("Failed to fetch context:", err);
+                console.error("Failed to fetch initial data for chat:", err);
+            } finally {
+                if (mounted) setIsFetchingModels(false);
             }
         };
-        fetchContext();
+        fetchInitialData();
+        return () => { mounted = false; };
     }, []);
 
-    // Auto-scroll
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
-
-    // Auto-resize textarea
-    useEffect(() => {
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            const scrollHeight = textareaRef.current.scrollHeight;
-            textareaRef.current.style.height = `${Math.min(scrollHeight, 150)}px`;
-        }
-    }, [input]);
-
+    // Refresh threads whenever a new message finishes
     const refreshThreads = async () => {
-        await refetchThreads();
+        try {
+            const data = await getChatThreads();
+            setThreads(data.threads || []);
+        } catch (e) {
+            console.error("Failed to refresh threads", e);
+        }
     };
 
+    // Load a specific thread
     const loadThread = async (threadId: string) => {
         if (loading) return;
         setLoading(true);
         try {
-            const response = await fetch(`http://127.0.0.1:8000/chat/threads/${encodeURIComponent(threadId)}`);
-            const detail = await response.json();
+            const detail = await getChatThread(threadId);
             const mappedMessages: Message[] = detail.messages.map((m: any) => ({
                 id: m.id,
                 role: m.role,
@@ -125,7 +118,7 @@ export default function ChatPage() {
         if (!confirm("Are you sure you want to delete this chat?")) return;
 
         try {
-            await deleteThread.mutateAsync(threadId);
+            await deleteChatThread(threadId);
             if (currentThreadId === threadId) {
                 handleNewChat();
             }
@@ -140,6 +133,20 @@ export default function ChatPage() {
         setMessages([]);
         setCurrentThreadId(null);
     };
+
+    // Auto-scroll
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
+
+    // Auto-resize textarea
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            const scrollHeight = textareaRef.current.scrollHeight;
+            textareaRef.current.style.height = `${Math.min(scrollHeight, 150)}px`;
+        }
+    }, [input]);
 
     const handleSend = async () => {
         const text = input.trim();
@@ -198,6 +205,7 @@ export default function ChatPage() {
                             return updated;
                         });
 
+                        // Refresh threads after the first real text chunk yields
                         if (firstChunk) {
                             refreshThreads();
                             firstChunk = false;
@@ -249,8 +257,7 @@ export default function ChatPage() {
         }
     };
 
-    // Get models from query data
-    const availableModels: ModelInfo[] = modelsData?.models || [];
+    // Group models for the dropdown
     const localModels = availableModels.filter(m => m.is_local);
     const remoteGroups = availableModels
         .filter(m => !m.is_local)
@@ -310,7 +317,7 @@ export default function ChatPage() {
                                     justifyContent: 'space-between',
                                     alignItems: 'center',
                                     background: currentThreadId === t.id ? 'var(--bg-hover)' : 'transparent',
-                                    color: currentThreadId === t.id ? 'var(--text-primary)' : 'var(--text-muted)',
+                                    color: currentThreadId === t.id ? 'var(--text)' : 'var(--text-muted)',
                                     marginBottom: '4px',
                                     fontSize: '14px',
                                     transition: 'background 0.2s ease'
@@ -358,7 +365,7 @@ export default function ChatPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <button
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontSize: 18 }}
+                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text)', fontSize: 18 }}
                             title="Toggle Sidebar"
                         >
                             ☰
@@ -436,8 +443,8 @@ export default function ChatPage() {
                     <div style={{
                         margin: '8px 16px',
                         padding: '8px 12px',
-                        background: 'var(--context-banner-bg)',
-                        border: '1px solid var(--context-banner-border)',
+                        background: 'rgba(79, 172, 254, 0.1)',
+                        border: '1px solid rgba(79, 172, 254, 0.3)',
                         borderRadius: '8px',
                         display: 'flex',
                         alignItems: 'center',
@@ -445,7 +452,7 @@ export default function ChatPage() {
                         fontSize: '13px'
                     }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ color: 'var(--accent-primary)' }}>◉ Active Context Detected</span>
+                            <span style={{ color: 'var(--accent-color)' }}>◉ Active Context Detected</span>
                             <span style={{ color: 'var(--text-muted)' }}>
                                 {activeContext.file_path && `File: ${activeContext.file_path.split(/[/\\]/).pop()} `}
                                 {activeContext.terminal_error && `(Terminal Error)`}
@@ -490,27 +497,31 @@ export default function ChatPage() {
 
                         <div style={{ flex: 1 }} />
 
-                        <select
-                            className="input"
-                            value={selectedModelId}
-                            onChange={(e) => setSelectedModelId(e.target.value)}
-                            style={{ width: 'auto', minWidth: 180, flex: "none", padding: '6px 28px 6px 10px' }}
-                        >
-                            {localModels.length > 0 && (
-                                <optgroup label="🖥️ Local Models">
-                                    {localModels.map(m => (
-                                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                                    ))}
-                                </optgroup>
-                            )}
-                            {Object.entries(remoteGroups).map(([provider, providerModels]) => (
-                                <optgroup key={provider} label={providerLabel(provider)}>
-                                    {providerModels.map(m => (
-                                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                                    ))}
-                                </optgroup>
-                            ))}
-                        </select>
+                        {isFetchingModels ? (
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading models...</div>
+                        ) : (
+                            <select
+                                className="input"
+                                value={selectedModelId}
+                                onChange={(e) => setSelectedModelId(e.target.value)}
+                                style={{ width: 'auto', minWidth: 180, flex: "none", padding: '6px 28px 6px 10px' }}
+                            >
+                                {localModels.length > 0 && (
+                                    <optgroup label="🖥️ Local Models">
+                                        {localModels.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {Object.entries(remoteGroups).map(([provider, providerModels]) => (
+                                    <optgroup key={provider} label={providerLabel(provider)}>
+                                        {providerModels.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                                        ))}
+                                    </optgroup>
+                                ))}
+                            </select>
+                        )}
                     </div>
 
                     <div className="input-group" style={{ alignItems: 'flex-end', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: '2px' }}>
@@ -521,7 +532,7 @@ export default function ChatPage() {
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            disabled={loading || !input.trim()}
+                            disabled={loading}
                             id="chat-input"
                             rows={1}
                             style={{

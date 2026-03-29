@@ -1,0 +1,15 @@
+Collecting arq==0.25.0
+  Downloading arq-0.25.0-py3-none-any.whl.metadata (2.6 kB)
+Collecting redis
+  Downloading redis-7.4.0-py3-none-any.whl.metadata (12 kB)
+Requirement already satisfied: click>=8.0 in c:\agents\personalassist\.venv\lib\site-packages (from arq==0.25.0) (8.3.1)
+Requirement already satisfied: typing-extensions>=4.1.0 in c:\agents\personalassist\.venv\lib\site-packages (from arq==0.25.0) (4.15.0)
+Requirement already satisfied: colorama in c:\agents\personalassist\.venv\lib\site-packages (from click>=8.0->arq==0.25.0) (0.4.6)
+Collecting hiredis>=3.2.0 (from redis[hiredis]>=4.2.0->arq==0.25.0)
+  Downloading hiredis-3.3.1-cp313-cp313-win_amd64.whl.metadata (7.7 kB)
+Downloading arq-0.25.0-py3-none-any.whl (25 kB)
+Downloading redis-7.4.0-py3-none-any.whl (409 kB)
+Downloading hiredis-3.3.1-cp313-cp313-win_amd64.whl (22 kB)
+Installing collected packages: redis, hiredis, arq
+
+Successfully installed arq-0.25.0 hiredis-3.3.1 redis-7.4.0

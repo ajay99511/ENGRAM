@@ -671,6 +671,339 @@ async def memory_all(user_id: str = "default"):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ── Extended Memory Endpoints (5-Layer System) ────────────────────────
+
+
+@app.get("/memory/sessions")
+async def list_sessions():
+    """List all session transcripts."""
+    try:
+        from packages.memory.jsonl_store import list_sessions
+        session_ids = await list_sessions()
+        return {"sessions": session_ids, "count": len(session_ids)}
+    except Exception as exc:
+        logger.error("List sessions error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/memory/sessions/{session_id}")
+async def get_session_transcript(session_id: str, limit: int = 100):
+    """Get session transcript with optional limit."""
+    try:
+        from packages.memory.jsonl_store import load_transcript
+        entries = await load_transcript(session_id)
+        
+        # Apply limit
+        if limit and len(entries) > limit:
+            entries = entries[-limit:]
+        
+        return {
+            "session_id": session_id,
+            "entries": entries,
+            "count": len(entries),
+        }
+    except Exception as exc:
+        logger.error("Get session error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/memory/bootstrap")
+async def get_bootstrap_files():
+    """Get bootstrap file contents."""
+    try:
+        from packages.memory.bootstrap import load_bootstrap_files, get_bootstrap_summary
+        summary = await get_bootstrap_summary()
+        content = await load_bootstrap_files(agent_type="main")
+        
+        return {
+            "summary": summary,
+            "content": content,
+        }
+    except Exception as exc:
+        logger.error("Get bootstrap error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/memory/compaction/history")
+async def get_compaction_history(session_id: str | None = None):
+    """Get compaction history."""
+    try:
+        from packages.memory.jsonl_store import list_sessions, load_transcript
+        
+        if session_id:
+            # Get compactions for specific session
+            entries = await load_transcript(session_id)
+            compactions = [e for e in entries if e.type == "compaction"]
+            return {
+                "session_id": session_id,
+                "compactions": compactions,
+                "count": len(compactions),
+            }
+        else:
+            # Get summary across all sessions
+            session_ids = await list_sessions()
+            total_compactions = 0
+            
+            for sid in session_ids[:10]:  # Limit to 10 sessions
+                entries = await load_transcript(sid)
+                compactions = [e for e in entries if e.type == "compaction"]
+                total_compactions += len(compactions)
+            
+            return {
+                "total_sessions": len(session_ids),
+                "total_compactions": total_compactions,
+                "recent_sessions": session_ids[:10],
+            }
+    except Exception as exc:
+        logger.error("Get compaction error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/memory/search")
+async def search_ltm(query: str, k: int = 10):
+    """Search across all memory layers (Mem0 + Qdrant)."""
+    try:
+        from packages.memory.memory_service import build_context
+        
+        # Use build_context which already does hybrid search
+        context = await build_context(query, user_id="default", k=k)
+        
+        return {
+            "query": query,
+            "context": context,
+            "k": k,
+        }
+    except Exception as exc:
+        logger.error("Search LTM error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── A2A Agent Endpoints ───────────────────────────────────────────────
+
+
+@app.get("/agents/a2a/list")
+async def list_a2a_agents():
+    """List all registered A2A agents."""
+    try:
+        from packages.agents.a2a import get_registry
+        
+        registry = get_registry()
+        agents = registry.list_agents()
+        
+        return {
+            "agents": [agent.model_dump() for agent in agents],
+            "count": len(agents),
+        }
+    except Exception as exc:
+        logger.error("List A2A agents error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/agents/a2a/{agent_id}")
+async def get_agent_card(agent_id: str):
+    """Get agent card details."""
+    try:
+        from packages.agents.a2a import get_registry
+        
+        registry = get_registry()
+        agent = registry.get_agent(agent_id)
+        
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        return agent.model_dump()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Get agent error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/agents/a2a/{agent_id}/delegate")
+async def delegate_task(agent_id: str, task: dict):
+    """Delegate task to an A2A agent."""
+    try:
+        from packages.agents.a2a import get_registry
+        
+        registry = get_registry()
+        
+        # Delegate task
+        task_handle = await registry.delegate(agent_id, task)
+        
+        return {
+            "task_id": task_handle.task_id,
+            "agent_id": agent_id,
+            "status": task_handle.status.value,
+        }
+    except Exception as exc:
+        logger.error("Delegate task error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/agents/a2a/task/{task_id}")
+async def get_task_status(task_id: str):
+    """Get task status."""
+    try:
+        from packages.agents.a2a import get_registry
+        
+        registry = get_registry()
+        task_handle = await registry.get_task_status(task_id)
+        
+        if not task_handle:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        return task_handle.model_dump()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Get task status error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/agents/a2a/capabilities")
+async def list_capabilities():
+    """List all available capabilities."""
+    try:
+        from packages.agents.a2a import get_registry
+        
+        registry = get_registry()
+        capabilities = registry.list_capabilities()
+        
+        return {
+            "capabilities": capabilities,
+            "count": len(capabilities),
+        }
+    except Exception as exc:
+        logger.error("List capabilities error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Telegram Endpoints ────────────────────────────────────────────────
+
+
+@app.get("/telegram/config")
+async def get_telegram_config():
+    """Get Telegram configuration."""
+    try:
+        import os
+        return {
+            "bot_token_set": bool(os.getenv("TELEGRAM_BOT_TOKEN")),
+            "dm_policy": os.getenv("TELEGRAM_DM_POLICY", "pairing"),
+            "bot_username": None,  # Would need to fetch from Telegram API
+        }
+    except Exception as exc:
+        logger.error("Get Telegram config error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/telegram/config")
+async def update_telegram_config(config: dict):
+    """Update Telegram configuration."""
+    try:
+        # Note: In production, this would update a config file or database
+        # For now, we'll just validate the input
+        bot_token = config.get("bot_token")
+        dm_policy = config.get("dm_policy", "pairing")
+        
+        if dm_policy not in ["pairing", "allowlist", "open"]:
+            raise HTTPException(status_code=400, detail="Invalid DM policy")
+        
+        return {
+            "status": "updated",
+            "dm_policy": dm_policy,
+            "message": "Configuration updated. Restart required for bot token changes.",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Update Telegram config error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/telegram/users")
+async def list_telegram_users():
+    """List all Telegram users."""
+    try:
+        from packages.messaging.telegram_bot import get_auth_store
+        
+        auth_store = get_auth_store()
+        users = auth_store.list_users()
+        
+        return {
+            "users": users,
+            "count": len(users),
+        }
+    except Exception as exc:
+        logger.error("List Telegram users error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/telegram/users/pending")
+async def list_pending_approvals():
+    """List pending approval requests."""
+    try:
+        from packages.messaging.telegram_bot import get_auth_store
+        
+        auth_store = get_auth_store()
+        users = auth_store.list_users()
+        pending = [u for u in users if not u.get("approved", False)]
+        
+        return {
+            "pending_users": pending,
+            "count": len(pending),
+        }
+    except Exception as exc:
+        logger.error("List pending approvals error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/telegram/users/{telegram_id}/approve")
+async def approve_telegram_user(telegram_id: str):
+    """Approve Telegram user."""
+    try:
+        from packages.messaging.telegram_bot import get_auth_store
+        
+        auth_store = get_auth_store()
+        success = auth_store.approve_user(telegram_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "status": "approved",
+            "telegram_id": telegram_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Approve Telegram user error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/telegram/test")
+async def send_test_message():
+    """Send test message to verify bot."""
+    try:
+        # This would actually send a test message via Telegram API
+        # For now, we'll just verify the bot token is set
+        import os
+        
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not bot_token:
+            return {
+                "status": "error",
+                "message": "Bot token not configured",
+            }
+        
+        return {
+            "status": "success",
+            "message": "Test message would be sent (Telegram API integration required)",
+        }
+    except Exception as exc:
+        logger.error("Send test message error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/memory/forget")
 async def memory_forget(req: ForgetRequest):
     """

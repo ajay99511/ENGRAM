@@ -1,0 +1,289 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2026-03-27T00:00:00Z",
+  "description": "Knowledge graph for PersonalAssist 2026 project context",
+  "nodes": [
+    {
+      "id": "phase-1-memory",
+      "type": "completed_phase",
+      "title": "5-Layer Memory System",
+      "summary": "Bootstrap injection, JSONL transcripts, pruning, compaction, LTM search with Mem0 + Qdrant",
+      "relevance": ["memory", "context", "rag", "qdrant", "mem0"],
+      "relatedFiles": [
+        "packages/memory/bootstrap.py",
+        "packages/memory/jsonl_store.py",
+        "packages/memory/pruning.py",
+        "packages/memory/compaction.py",
+        "packages/memory/memory_service.py"
+      ],
+      "relatedDocs": [
+        "01-PROJECT-STATE.md#architecture-overview",
+        "03-ARCHITECTURE-DECISIONS.md#memory-system"
+      ],
+      "status": "complete",
+      "testCoverage": "81%",
+      "completedDate": "2026-03-27"
+    },
+    {
+      "id": "phase-2-workspace",
+      "type": "completed_phase",
+      "title": "Workspace Isolation",
+      "summary": "Path-based permissions, dangerous path blocking, audit logging, A2A registry with 4 Tier 1 agents",
+      "relevance": ["security", "agents", "permissions", "workspace", "a2a"],
+      "relatedFiles": [
+        "packages/agents/workspace.py",
+        "packages/agents/a2a/registry.py",
+        "packages/agents/a2a/agents.py",
+        "apps/api/workspace_router.py"
+      ],
+      "relatedDocs": [
+        "01-PROJECT-STATE.md#architecture-overview",
+        "03-ARCHITECTURE-DECISIONS.md#workspace-isolation"
+      ],
+      "status": "complete",
+      "testCoverage": "75%",
+      "completedDate": "2026-03-27"
+    },
+    {
+      "id": "phase-3-arq",
+      "type": "completed_phase",
+      "title": "Background Tasks (ARQ + Redis)",
+      "summary": "ARQ worker with cron scheduling, job persistence, retry logic, job monitoring API",
+      "relevance": ["arq", "redis", "background-tasks", "cron", "jobs"],
+      "relatedFiles": [
+        "packages/automation/arq_worker.py",
+        "apps/api/job_router.py",
+        "apps/desktop/src/pages/JobsPage.tsx"
+      ],
+      "relatedDocs": [
+        "01-PROJECT-STATE.md#architecture-overview",
+        "03-ARCHITECTURE-DECISIONS.md#background-tasks"
+      ],
+      "status": "complete",
+      "testCoverage": "integration",
+      "completedDate": "2026-03-27"
+    },
+    {
+      "id": "phase-4-telegram",
+      "type": "completed_phase",
+      "title": "Telegram Gateway",
+      "summary": "Telegram bot with auth, DM policy (pairing/allowlist/open), rate limiting, webhook support",
+      "relevance": ["telegram", "messaging", "bot", "webhook"],
+      "relatedFiles": [
+        "packages/messaging/telegram_bot.py",
+        "packages/messaging/telegram_webhook.py",
+        "apps/desktop/src/pages/TelegramPage.tsx"
+      ],
+      "relatedDocs": [
+        "01-PROJECT-STATE.md#architecture-overview",
+        "03-ARCHITECTURE-DECISIONS.md#telegram-gateway"
+      ],
+      "status": "complete",
+      "testCoverage": "integration",
+      "completedDate": "2026-03-27"
+    },
+    {
+      "id": "phase-5-context",
+      "type": "completed_phase",
+      "title": "Context Engine",
+      "summary": "Adaptive context windows, token budget management, 6 provider support, message prioritization",
+      "relevance": ["context", "token-budget", "ollama", "providers"],
+      "relatedFiles": [
+        "packages/memory/context_engine.py",
+        "packages/memory/token_budget.py"
+      ],
+      "relatedDocs": [
+        "01-PROJECT-STATE.md#architecture-overview",
+        "03-ARCHITECTURE-DECISIONS.md#context-engine"
+      ],
+      "status": "complete",
+      "testCoverage": "integration",
+      "completedDate": "2026-03-27"
+    },
+    {
+      "id": "phase-6-desktop",
+      "type": "completed_phase",
+      "title": "Desktop Polish",
+      "summary": "TanStack Query integration, custom hooks, agent trace visualization",
+      "relevance": ["desktop", "tanstack", "react-query", "ui"],
+      "relatedFiles": [
+        "apps/desktop/src/lib/QueryProvider.tsx",
+        "apps/desktop/src/lib/hooks.ts",
+        "apps/desktop/src/components/agents/AgentTraceViewer.tsx"
+      ],
+      "relatedDocs": [
+        "01-PROJECT-STATE.md#frontend",
+        "03-ARCHITECTURE-DECISIONS.md#desktop-polish"
+      ],
+      "status": "complete",
+      "testCoverage": "integration",
+      "completedDate": "2026-03-27"
+    },
+    {
+      "id": "phase-7-integration",
+      "type": "completed_phase",
+      "title": "Integration Sprint",
+      "summary": "Memory expansion (5 tabs), A2A UI, AgentTrace hookup, Telegram UI, Permission tester",
+      "relevance": ["integration", "ui", "memory", "agents", "telegram", "workspace"],
+      "relatedFiles": [
+        "apps/desktop/src/pages/MemoryPage.tsx",
+        "apps/desktop/src/pages/AgentsPage.tsx",
+        "apps/desktop/src/pages/TelegramPage.tsx",
+        "apps/desktop/src/pages/WorkspacePage.tsx"
+      ],
+      "relatedDocs": [
+        "FINAL_INTEGRATION_SPRINT_REPORT.md",
+        "GAPS_CLOSURE_PROGRESS_UPDATE_2.md"
+      ],
+      "status": "complete",
+      "completion": "98%",
+      "completedDate": "2026-03-27"
+    },
+    {
+      "id": "arq-redis-fix",
+      "type": "critical_fix",
+      "title": "ARQ/Redis Integration Fixes",
+      "summary": "Fixed route ordering, RedisSettings parameters, ARQ pool usage - production-blocking issues resolved",
+      "relevance": ["redis", "arq", "critical-fix", "production"],
+      "relatedFiles": [
+        "apps/api/job_router.py",
+        "apps/desktop/src/pages/HealthPage.tsx"
+      ],
+      "relatedDocs": [
+        "HEALTH_DASHBOARD_CRITICAL_ANALYSIS.md"
+      ],
+      "status": "resolved",
+      "impact": "production-blocking",
+      "resolvedDate": "2026-03-27"
+    },
+    {
+      "id": "health-dashboard-fix",
+      "type": "critical_fix",
+      "title": "Health Dashboard Status Detection",
+      "summary": "Fixed Redis and ARQ worker status detection, added /jobs/health endpoint",
+      "relevance": ["health", "dashboard", "redis", "arq", "monitoring"],
+      "relatedFiles": [
+        "apps/desktop/src/pages/HealthPage.tsx",
+        "apps/api/job_router.py"
+      ],
+      "relatedDocs": [
+        "HEALTH_DASHBOARD_CRITICAL_ANALYSIS.md"
+      ],
+      "status": "resolved",
+      "impact": "high",
+      "resolvedDate": "2026-03-27"
+    },
+    {
+      "id": "optional-context-visibility",
+      "type": "optional_enhancement",
+      "title": "Context Visibility (Optional)",
+      "summary": "Add context stats to Health page - token budget, active layers, compaction status",
+      "relevance": ["context", "health", "optional", "enhancement"],
+      "relatedFiles": [
+        "apps/desktop/src/pages/HealthPage.tsx",
+        "packages/memory/context_engine.py"
+      ],
+      "relatedDocs": [
+        "01-PROJECT-STATE.md#remaining-work-optional-enhancements"
+      ],
+      "status": "pending",
+      "priority": "P2",
+      "estimatedEffort": "3-4h"
+    },
+    {
+      "id": "optional-hooks-migration",
+      "type": "optional_enhancement",
+      "title": "Hooks Migration (Optional)",
+      "summary": "Migrate remaining pages to TanStack Query - technical debt cleanup",
+      "relevance": ["tanstack", "react-query", "optional", "technical-debt"],
+      "relatedFiles": [
+        "apps/desktop/src/pages/MemoryPage.tsx",
+        "apps/desktop/src/pages/ModelsPage.tsx",
+        "apps/desktop/src/pages/WorkspacePage.tsx"
+      ],
+      "relatedDocs": [
+        "01-PROJECT-STATE.md#remaining-work-optional-enhancements"
+      ],
+      "status": "pending",
+      "priority": "P3",
+      "estimatedEffort": "4-6h"
+    }
+  ],
+  "edges": [
+    {
+      "from": "phase-1-memory",
+      "to": "phase-2-workspace",
+      "type": "dependency",
+      "description": "Workspace system uses memory for context assembly"
+    },
+    {
+      "from": "phase-1-memory",
+      "to": "phase-5-context",
+      "type": "enhancement",
+      "description": "Context engine optimizes memory layer usage"
+    },
+    {
+      "from": "phase-3-arq",
+      "to": "arq-redis-fix",
+      "type": "enabled_by",
+      "description": "ARQ worker requires Redis integration fixes"
+    },
+    {
+      "from": "phase-3-arq",
+      "to": "health-dashboard-fix",
+      "type": "monitored_by",
+      "description": "Health dashboard shows ARQ worker status"
+    },
+    {
+      "from": "phase-2-workspace",
+      "to": "phase-7-integration",
+      "type": "enhanced_by",
+      "description": "Integration sprint added permission tester"
+    },
+    {
+      "from": "phase-4-telegram",
+      "to": "phase-7-integration",
+      "type": "completed_in",
+      "description": "Telegram UI created in integration sprint"
+    },
+    {
+      "from": "phase-7-integration",
+      "to": "optional-context-visibility",
+      "type": "remaining",
+      "description": "Context visibility is remaining optional work"
+    },
+    {
+      "from": "phase-7-integration",
+      "to": "optional-hooks-migration",
+      "type": "remaining",
+      "description": "Hooks migration is remaining optional work"
+    }
+  ],
+  "retrievalHints": {
+    "whenWorkingOn": {
+      "memory": ["phase-1-memory", "phase-5-context"],
+      "workspace": ["phase-2-workspace", "phase-7-integration"],
+      "agents": ["phase-2-workspace", "phase-7-integration"],
+      "redis": ["arq-redis-fix", "phase-3-arq", "health-dashboard-fix"],
+      "arq": ["phase-3-arq", "arq-redis-fix"],
+      "telegram": ["phase-4-telegram", "phase-7-integration"],
+      "health": ["health-dashboard-fix", "phase-3-arq"],
+      "context": ["phase-5-context", "optional-context-visibility"],
+      "tanstack": ["phase-6-desktop", "optional-hooks-migration"]
+    },
+    "commonTasks": {
+      "starting-new-session": ["00-AGENT-ONBOARDING.md", "01-PROJECT-STATE.md", "02-USER-EXPECTATIONS.md"],
+      "continuing-work": ["05-ACTIVE-TASKS.md", "06-COMPLETED-PHASES.md"],
+      "answering-questions": ["08-CONTEXT-RETRIEVAL.md", "graph/knowledge-graph.json"],
+      "making-changes": ["04-FILE-MANIFEST.md", "03-ARCHITECTURE-DECISIONS.md", "07-KNOWN-ISSUES.md"]
+    }
+  },
+  "metadata": {
+    "totalNodes": 11,
+    "totalEdges": 8,
+    "completedPhases": 7,
+    "criticalFixes": 2,
+    "optionalEnhancements": 2,
+    "overallCompletion": "98%"
+  }
+}

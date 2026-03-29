@@ -1,7 +1,3 @@
-/**
- * Workspace Page - Expanded with Permission Tester
- */
-
 import { useState, useEffect } from "react";
 import {
   listWorkspaces,
@@ -13,15 +9,6 @@ import {
   type AuditLogEntry,
 } from "../lib/workspace-api";
 
-interface PermissionTest {
-  path: string;
-  action: 'read' | 'write' | 'execute';
-  result?: {
-    allowed: boolean;
-    reason: string;
-  };
-}
-
 export default function WorkspacePage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,14 +16,6 @@ export default function WorkspacePage() {
   const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [showAuditLog, setShowAuditLog] = useState(false);
-  
-  // Permission tester state
-  const [showPermissionTester, setShowPermissionTester] = useState(false);
-  const [permissionTest, setPermissionTest] = useState<PermissionTest>({
-    path: "",
-    action: "read",
-  });
-  const [testingPermission, setTestingPermission] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -68,7 +47,7 @@ export default function WorkspacePage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-
+    
     try {
       await createWorkspace({
         project_id: formData.project_id,
@@ -83,7 +62,7 @@ export default function WorkspacePage() {
         agent_instructions: formData.agent_instructions,
         context_collection: `project_${formData.project_id}`,
       });
-
+      
       setShowCreateForm(false);
       setFormData({
         project_id: "",
@@ -103,7 +82,7 @@ export default function WorkspacePage() {
 
   const handleDelete = async (projectId: string) => {
     if (!confirm(`Delete workspace "${projectId}"?`)) return;
-
+    
     try {
       await deleteWorkspace(projectId);
       loadWorkspaces();
@@ -125,61 +104,21 @@ export default function WorkspacePage() {
     }
   };
 
-  const handleTestPermission = async () => {
-    if (!selectedWorkspace || !permissionTest.path.trim()) return;
-
-    setTestingPermission(true);
-    try {
-      const response = await fetch(
-        `http://127.0.0.1:8000/workspaces/${encodeURIComponent(selectedWorkspace.project_id)}/check-permission`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            path: permissionTest.path,
-            action: permissionTest.action,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to test permission');
-      }
-
-      const result = await response.json();
-      setPermissionTest(prev => ({ ...prev, result }));
-    } catch (err) {
-      alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setTestingPermission(false);
-    }
-  };
-
   return (
-    <div style={{ padding: '20px', height: '100%', overflow: 'auto' }}>
+    <div style={{ padding: "20px", height: "100%", overflow: "auto" }}>
       <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: '20px',
+        display: "flex", 
+        justifyContent: "space-between", 
+        alignItems: "center",
+        marginBottom: "20px"
       }}>
         <h1 style={{ margin: 0 }}>Workspace Management</h1>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button
-            className="btn btn-secondary"
-            onClick={() => setShowPermissionTester(true)}
-            disabled={!selectedWorkspace}
-            title={selectedWorkspace ? "Test permissions" : "Select a workspace first"}
-          >
-            🔒 Test Permissions
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowCreateForm(!showCreateForm)}
-          >
-            {showCreateForm ? "Cancel" : "+ New Workspace"}
-          </button>
-        </div>
+        <button
+          className="btn btn-primary"
+          onClick={() => setShowCreateForm(!showCreateForm)}
+        >
+          {showCreateForm ? "Cancel" : "+ New Workspace"}
+        </button>
       </div>
 
       {/* Create Form */}
@@ -305,12 +244,12 @@ export default function WorkspacePage() {
               key={workspace.project_id}
               className="card"
               style={{
-                background: "var(--bg-card)",
+                background: "var(--bg-secondary)",
                 padding: "16px",
                 borderRadius: "8px",
                 cursor: "pointer",
-                border: selectedWorkspace?.project_id === workspace.project_id
-                  ? "2px solid var(--accent-primary)"
+                border: selectedWorkspace?.project_id === workspace.project_id 
+                  ? "2px solid var(--accent-color)"
                   : "2px solid transparent",
               }}
               onClick={() => setSelectedWorkspace(workspace)}
@@ -371,28 +310,29 @@ export default function WorkspacePage() {
       {showAuditLog && (
         <div style={{
           position: "fixed",
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: "var(--bg-overlay)",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.5)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           zIndex: 1000,
         }} onClick={() => setShowAuditLog(false)}>
-          <div
+          <div 
             style={{
-              background: "var(--bg-modal)",
-              border: "1px solid var(--border)",
+              background: "var(--bg-secondary)",
               padding: "20px",
-              borderRadius: "12px",
+              borderRadius: "8px",
               maxWidth: "800px",
               maxHeight: "80vh",
               overflow: "auto",
-              boxShadow: "var(--shadow-lg)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 style={{ marginTop: 0 }}>Audit Log — {selectedWorkspace?.project_id}</h2>
-
+            <h2 style={{ marginTop: 0 }}>Audit Log {selectedWorkspace?.project_id}</h2>
+            
             {auditLog.length === 0 ? (
               <div className="empty-state">
                 <div>No audit entries yet</div>
@@ -409,11 +349,11 @@ export default function WorkspacePage() {
                 </thead>
                 <tbody>
                   {auditLog.map((entry, i) => (
-                    <tr
+                    <tr 
                       key={i}
-                      style={{
+                      style={{ 
                         borderBottom: "1px solid var(--border)",
-                        background: entry.allowed ? "var(--audit-allowed-bg)" : "var(--audit-denied-bg)",
+                        background: entry.allowed ? "rgba(0,255,0,0.05)" : "rgba(255,0,0,0.05)",
                       }}
                     >
                       <td style={{ padding: "8px", fontFamily: "monospace", fontSize: "11px" }}>
@@ -433,7 +373,7 @@ export default function WorkspacePage() {
                 </tbody>
               </table>
             )}
-
+            
             <button
               className="btn btn-secondary"
               onClick={() => setShowAuditLog(false)}
@@ -445,123 +385,17 @@ export default function WorkspacePage() {
         </div>
       )}
 
-      {/* Permission Tester Modal */}
-      {showPermissionTester && selectedWorkspace && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0, left: 0, right: 0, bottom: 0,
-            background: "var(--bg-overlay)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-          onClick={() => {
-            setShowPermissionTester(false);
-            setPermissionTest({ path: "", action: "read" });
-          }}
-        >
-          <div
-            style={{
-              background: "var(--bg-modal)",
-              border: "1px solid var(--border)",
-              padding: "24px",
-              borderRadius: "12px",
-              maxWidth: "500px",
-              width: "90%",
-              boxShadow: "var(--shadow-lg)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ marginTop: 0 }}>🔒 Permission Tester</h3>
-            <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "-16px" }}>
-              Test if a path has specific permissions in workspace: <strong>{selectedWorkspace.project_id}</strong>
-            </p>
-
-            <div style={{ marginBottom: "16px" }}>
-              <label style={{ display: "block", marginBottom: "8px", fontSize: "13px" }}>
-                Path to Test
-              </label>
-              <input
-                type="text"
-                className="input"
-                value={permissionTest.path}
-                onChange={(e) => setPermissionTest(prev => ({ ...prev, path: e.target.value }))}
-                placeholder="src/main.py"
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            <div style={{ marginBottom: "16px" }}>
-              <label style={{ display: "block", marginBottom: "8px", fontSize: "13px" }}>
-                Action
-              </label>
-              <select
-                className="input"
-                value={permissionTest.action}
-                onChange={(e) => setPermissionTest(prev => ({ ...prev, action: e.target.value as any }))}
-                style={{ width: "100%" }}
-              >
-                <option value="read">Read</option>
-                <option value="write">Write</option>
-                <option value="execute">Execute</option>
-              </select>
-            </div>
-
-            {permissionTest.result && (
-              <div style={{
-                marginBottom: "16px",
-                padding: "12px",
-                borderRadius: "8px",
-                background: permissionTest.result.allowed
-                  ? "var(--permission-allowed-bg)"
-                  : "var(--permission-denied-bg)",
-                border: `1px solid ${permissionTest.result.allowed ? "var(--success-color)" : "var(--error-color)"}`,
-              }}>
-                <div style={{ fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>
-                  {permissionTest.result.allowed ? "✅ Allowed" : "❌ Denied"}
-                </div>
-                <div style={{ fontSize: "11px" }}>
-                  {permissionTest.result.reason}
-                </div>
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button
-                className="btn btn-secondary"
-                onClick={() => {
-                  setShowPermissionTester(false);
-                  setPermissionTest({ path: "", action: "read" });
-                }}
-              >
-                Close
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleTestPermission}
-                disabled={testingPermission || !permissionTest.path.trim()}
-              >
-                {testingPermission ? "Testing..." : "🔍 Test Permission"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Selected Workspace Details */}
-      {selectedWorkspace && !showAuditLog && !showPermissionTester && (
+      {selectedWorkspace && !showAuditLog && (
         <div style={{
           position: "fixed",
           bottom: "20px",
           right: "20px",
           width: "400px",
-          background: "var(--bg-modal)",
-          border: "1px solid var(--border)",
+          background: "var(--bg-secondary)",
           padding: "16px",
-          borderRadius: "12px",
-          boxShadow: "var(--shadow-lg)",
+          borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
         }}>
           <h3 style={{ marginTop: 0 }}>{selectedWorkspace.project_id}</h3>
           <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>

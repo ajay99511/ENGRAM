@@ -169,19 +169,16 @@ class WorkerSettings:
             run_daily_briefing,
             hour=8,
             minute=0,
-            tz="UTC",
         ),
         cron(
             run_hourly_snapshot,
             minute=0,
-            tz="UTC",
         ),
         cron(
             run_workspace_audit,
             hour=9,
             minute=0,
-            day_of_week="mon",
-            tz="UTC",
+            weekday="mon",
         ),
     ]
     

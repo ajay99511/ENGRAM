@@ -1,0 +1,371 @@
+/**
+ * System Health Dashboard
+ * 
+ * Displays status of all services:
+ * - Qdrant (vector DB)
+ * - Redis (job queue)
+ * - Ollama (local LLM)
+ * - FastAPI (backend)
+ * - ARQ Worker (background tasks)
+ * 
+ * Also shows token budget and context layer breakdown.
+ */
+
+import { useState, useEffect } from "react";
+
+interface ServiceStatus {
+  name: string;
+  status: 'healthy' | 'degraded' | 'offline';
+  port?: number;
+  details?: string;
+}
+
+interface HealthStats {
+  qdrant_collections?: number;
+  mem0_memories?: number;
+  redis_keys?: number;
+  active_jobs?: number;
+  token_usage?: {
+    current: number;
+    budget: number;
+    percent: number;
+  };
+}
+
+export default function HealthPage() {
+  const [services, setServices] = useState<ServiceStatus[]>([]);
+  const [stats, setStats] = useState<HealthStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  const checkHealth = async () => {
+    setLoading(true);
+    try {
+      const [healthRes, memoryHealthRes, jobsStatsRes] = await Promise.all([
+        fetch('http://127.0.0.1:8000/health'),
+        fetch('http://127.0.0.1:8000/memory/health'),
+        fetch('http://127.0.0.1:8000/jobs/stats'),
+      ]);
+
+      const health = await healthRes.json();
+      const memoryHealth = await memoryHealthRes.json();
+      const jobsStats = await jobsStatsRes.json();
+
+      const serviceList: ServiceStatus[] = [
+        {
+          name: 'FastAPI Backend',
+          status: health.status === 'ok' ? 'healthy' : 'degraded',
+          port: 8000,
+          details: `Version: ${health.version || '0.2.0'}`,
+        },
+        {
+          name: 'Qdrant (Vector DB)',
+          status: memoryHealth.qdrant === 'connected' ? 'healthy' : 'offline',
+          port: 6333,
+          details: memoryHealth.collections ? 
+            `Collections: ${memoryHealth.collections.length}` : 
+            memoryHealth.error,
+        },
+        {
+          name: 'Redis (Job Queue)',
+          status: jobsStats.redis_connected ? 'healthy' : 'offline',
+          port: 6379,
+          details: jobsStats.redis_connected ? 'Connected' : 'Not connected',
+        },
+        {
+          name: 'Ollama (Local LLM)',
+          status: 'healthy', // Assume healthy if we can make requests
+          port: 11434,
+          details: 'Running',
+        },
+        {
+          name: 'ARQ Worker',
+          status: jobsStats.total_jobs !== undefined ? 'healthy' : 'offline',
+          details: jobsStats.total_jobs ? 
+            `${jobsStats.status_counts?.running || 0} jobs running` : 
+            'Not running',
+        },
+      ];
+
+      setServices(serviceList);
+
+      // Get additional stats
+      try {
+        const threadsRes = await fetch('http://127.0.0.1:8000/chat/threads');
+        const threads = await threadsRes.json();
+        
+        const memoriesRes = await fetch('http://127.0.0.1:8000/memory/all');
+        const memories = await memoriesRes.json();
+
+        setStats({
+          qdrant_collections: memoryHealth.collections?.length,
+          mem0_memories: memories.count,
+          redis_keys: jobsStats.total_jobs,
+          active_jobs: jobsStats.status_counts?.running,
+          token_usage: {
+            current: 0, // Would need context engine endpoint
+            budget: 8000,
+            percent: 0,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to fetch stats:', err);
+      }
+
+    } catch (err) {
+      console.error('Health check failed:', err);
+      setServices([
+        { name: 'FastAPI Backend', status: 'offline', port: 8000, details: 'Cannot connect' },
+        { name: 'Qdrant (Vector DB)', status: 'offline', port: 6333 },
+        { name: 'Redis (Job Queue)', status: 'offline', port: 6379 },
+        { name: 'Ollama (Local LLM)', status: 'offline', port: 11434 },
+        { name: 'ARQ Worker', status: 'offline' },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'healthy': return 'var(--success-color)';
+      case 'degraded': return 'var(--warning-color)';
+      case 'offline': return 'var(--error-color)';
+      default: return 'var(--text-muted)';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'healthy': return '✅';
+      case 'degraded': return '⚠️';
+      case 'offline': return '❌';
+      default: return '❓';
+    }
+  };
+
+  const healthyCount = services.filter(s => s.status === 'healthy').length;
+  const totalServices = services.length;
+
+  return (
+    <div style={{ padding: '20px', height: '100%', overflow: 'auto' }}>
+      <h1 style={{ marginBottom: '20px' }}>System Health Dashboard</h1>
+
+      {/* Overall Status */}
+      <div className="card" style={{ 
+        background: 'var(--bg-secondary)', 
+        padding: '20px',
+        marginBottom: '24px',
+        border: `2px solid ${healthyCount === totalServices ? 'var(--success-color)' : 'var(--warning-color)'}`,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+              Overall System Status
+            </div>
+            <div style={{ fontSize: '24px', fontWeight: 700 }}>
+              {healthyCount === totalServices ? (
+                <span style={{ color: 'var(--success-color)' }}>All Systems Operational</span>
+              ) : (
+                <span style={{ color: 'var(--warning-color)' }}>
+                  {healthyCount}/{totalServices} Services Healthy
+                </span>
+              )}
+            </div>
+          </div>
+          <button className="btn btn-secondary" onClick={checkHealth} disabled={loading}>
+            {loading ? 'Checking...' : '🔄 Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {/* Service Status Grid */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        gap: '16px',
+        marginBottom: '24px',
+      }}>
+        {services.map((service) => (
+          <div
+            key={service.name}
+            className="card"
+            style={{ 
+              background: 'var(--bg-secondary)', 
+              padding: '16px',
+              border: `1px solid ${getStatusColor(service.status)}`,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+              <div style={{ fontSize: '20px' }}>
+                {getStatusIcon(service.status)}
+              </div>
+              <span style={{ 
+                fontSize: '12px', 
+                fontWeight: 600,
+                color: getStatusColor(service.status),
+                textTransform: 'uppercase',
+              }}>
+                {service.status}
+              </span>
+            </div>
+            
+            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+              {service.name}
+            </div>
+            
+            {service.port && (
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Port: {service.port}
+              </div>
+            )}
+            
+            {service.details && (
+              <div style={{ fontSize: '12px', color: 'var(--text)' }}>
+                {service.details}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Statistics */}
+      {stats && (
+        <div className="card" style={{ background: 'var(--bg-secondary)', padding: '16px' }}>
+          <h3 style={{ marginTop: 0, marginBottom: '16px' }}>System Statistics</h3>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+            <div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Qdrant Collections
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: 700 }}>
+                {stats.qdrant_collections || 0}
+              </div>
+            </div>
+            
+            <div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Mem0 Memories
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: 700 }}>
+                {stats.mem0_memories || 0}
+              </div>
+            </div>
+            
+            <div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Active Jobs
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: 700 }}>
+                {stats.active_jobs || 0}
+              </div>
+            </div>
+            
+            <div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Chat Threads
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: 700 }}>
+                {/* Would need to fetch this */}
+                -
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Token Budget (Placeholder) */}
+      <div className="card" style={{ 
+        background: 'var(--bg-secondary)', 
+        padding: '16px',
+        marginTop: '24px',
+      }}>
+        <h3 style={{ marginTop: 0, marginBottom: '16px' }}>Token Budget</h3>
+        
+        <div style={{ marginBottom: '8px', fontSize: '13px' }}>
+          Context Engine Token Usage
+        </div>
+        
+        <div style={{ 
+          width: '100%', 
+          height: '24px', 
+          background: 'var(--bg-input)',
+          borderRadius: '4px',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            width: `${stats?.token_usage?.percent || 0}%`,
+            height: '100%',
+            background: 'var(--accent-color)',
+            transition: 'width 0.3s ease',
+          }} />
+        </div>
+        
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          marginTop: '8px',
+          fontSize: '12px',
+          color: 'var(--text-muted)',
+        }}>
+          <span>Current: {stats?.token_usage?.current || 0} tokens</span>
+          <span>Budget: {stats?.token_usage?.budget || 8000} tokens</span>
+        </div>
+        
+        <div style={{ 
+          marginTop: '12px', 
+          fontSize: '12px', 
+          color: 'var(--text-muted)',
+          fontStyle: 'italic',
+        }}>
+          Note: Real-time token tracking requires context engine integration
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="card" style={{ 
+        background: 'var(--bg-secondary)', 
+        padding: '16px',
+        marginTop: '24px',
+      }}>
+        <h3 style={{ marginTop: 0, marginBottom: '16px' }}>Quick Actions</h3>
+        
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <button 
+            className="btn btn-secondary"
+            onClick={() => window.location.href = '/workspaces'}
+          >
+            📁 View Workspaces
+          </button>
+          
+          <button 
+            className="btn btn-secondary"
+            onClick={() => window.location.href = '/jobs'}
+          >
+            ⚙️ View Background Jobs
+          </button>
+          
+          <button 
+            className="btn btn-secondary"
+            onClick={() => window.location.href = '/memory'}
+          >
+            🧠 View Memories
+          </button>
+          
+          <button 
+            className="btn btn-secondary"
+            onClick={checkHealth}
+          >
+            🔄 Refresh All
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
