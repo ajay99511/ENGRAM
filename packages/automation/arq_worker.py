@@ -20,6 +20,14 @@ from typing import Any
 from arq import cron
 from arq.worker import Worker
 
+# Import autonomous jobs for registration
+from packages.automation.autonomous_jobs import (
+    autonomous_watch_execute,
+    autonomous_research_execute,
+    autonomous_gap_analysis_execute,
+    autonomous_cleanup_old_results,
+)
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────
@@ -160,6 +168,11 @@ class WorkerSettings:
         run_hourly_snapshot,
         run_memory_consolidation,
         run_workspace_audit,
+        # Autonomous agent jobs
+        autonomous_watch_execute,
+        autonomous_research_execute,
+        autonomous_gap_analysis_execute,
+        autonomous_cleanup_old_results,
     ]
     
     # Cron jobs (scheduled tasks)

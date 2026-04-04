@@ -619,15 +619,65 @@ export async function searchMemoryLayers(
 
 // ── Telegram ───────────────────────────────────────────────────────
 
-export async function getTelegramConfig(): Promise<TelegramConfig> {
+export interface TelegramConfigResponse {
+  bot_token_set: boolean;
+  dm_policy: "pairing" | "allowlist" | "open";
+  token_display: string;
+}
+
+export interface TelegramStatus {
+  state: "stopped" | "starting" | "running" | "error" | "reloading" | "stopping";
+  dm_policy: "pairing" | "allowlist" | "open";
+  started_at?: string;
+  uptime_seconds?: number;
+  error_message?: string;
+}
+
+export interface TelegramActionResponse {
+  status: string;
+  message: string;
+  dm_policy?: string;
+}
+
+export async function getTelegramConfig(): Promise<TelegramConfigResponse> {
   return api("/telegram/config");
 }
 
 export async function updateTelegramConfig(payload: {
   bot_token?: string;
   dm_policy: "pairing" | "allowlist" | "open";
-}): Promise<{ status: string; dm_policy: string; message: string }> {
+}): Promise<TelegramActionResponse> {
   return api("/telegram/config", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getTelegramStatus(): Promise<TelegramStatus> {
+  return api("/telegram/status");
+}
+
+export async function startTelegramBot(payload: {
+  bot_token: string;
+  dm_policy?: "pairing" | "allowlist" | "open";
+}): Promise<TelegramActionResponse> {
+  return api("/telegram/start", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function stopTelegramBot(): Promise<TelegramActionResponse> {
+  return api("/telegram/stop", {
+    method: "POST",
+  });
+}
+
+export async function reloadTelegramBot(payload: {
+  bot_token: string;
+  dm_policy: "pairing" | "allowlist" | "open";
+}): Promise<TelegramActionResponse> {
+  return api("/telegram/reload", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -649,8 +699,229 @@ export async function approveTelegramUser(
   });
 }
 
-export async function sendTelegramTestMessage(): Promise<{ status: string; message: string }> {
-  return api("/telegram/test", { method: "POST" });
+export async function sendTelegramTestMessage(): Promise<TelegramActionResponse> {
+  return api("/telegram/test", {
+    method: "POST",
+  });
+}
+
+// ── System Monitor ───────────────────────────────────────────────────────
+
+export interface SystemSummary {
+  cpu: {
+    usage_percent: number;
+    cores_physical: number;
+    cores_logical: number;
+    frequency_mhz: number;
+    per_cpu_usage: number[];
+    available: boolean;
+    timestamp: string;
+    error?: string;
+  };
+  memory: {
+    total_gb: number;
+    available_gb: number;
+    used_gb: number;
+    usage_percent: number;
+    swap_total_gb: number;
+    swap_used_gb: number;
+    available: boolean;
+    timestamp: string;
+    error?: string;
+  };
+  disk: Array<{
+    device: string;
+    mountpoint: string;
+    total_gb: number;
+    used_gb: number;
+    free_gb: number;
+    usage_percent: number;
+    fstype: string;
+    error?: string;
+  }>;
+  battery: {
+    present: boolean;
+    percent?: number;
+    time_left_minutes?: number | null;
+    power_plugged?: boolean;
+    status?: string;
+    available: boolean;
+    timestamp: string;
+    error?: string;
+  };
+  timestamp: string;
+  available: boolean;
+}
+
+export interface ProcessInfo {
+  pid: number;
+  name: string;
+  cpu_percent: number;
+  memory_percent: number;
+  memory_mb: number;
+  status: string;
+}
+
+export async function getSystemSummary(): Promise<SystemSummary> {
+  return api("/system/summary");
+}
+
+export async function getCPUInfo(): Promise<SystemSummary["cpu"]> {
+  return api("/system/cpu");
+}
+
+export async function getMemoryInfo(): Promise<SystemSummary["memory"]> {
+  return api("/system/memory");
+}
+
+export async function getDiskInfo(): Promise<SystemSummary["disk"]> {
+  return api("/system/disk");
+}
+
+export async function getBatteryInfo(): Promise<SystemSummary["battery"]> {
+  return api("/system/battery");
+}
+
+export async function getProcessList(
+  limit: number = 20,
+  sort_by: "cpu" | "memory" = "cpu"
+): Promise<ProcessInfo[]> {
+  return api(`/system/processes?limit=${limit}&sort_by=${sort_by}`);
+}
+
+// ── Autonomous Agent ───────────────────────────────────────────────────────
+
+export interface AutonomousStatus {
+  workspace_id: string;
+  running: boolean;
+  watch_mode: {
+    active: boolean;
+    config: {
+      repo_path: string;
+      interval: string;
+      started_at: string;
+    } | null;
+  };
+  research: {
+    active: boolean;
+    config: {
+      topics: string[];
+      interval: string;
+      started_at: string;
+    } | null;
+  };
+  gap_analysis: {
+    active: boolean;
+    config: {
+      project_path: string;
+      interval: string;
+      started_at: string;
+    } | null;
+  };
+  callbacks_registered: Record<string, number>;
+}
+
+export interface AutonomousEvent {
+  id: string;
+  type: string;
+  data: Record<string, any>;
+  timestamp: string;
+  source: string;
+  workspace_id: string;
+}
+
+export async function getAutonomousStatus(): Promise<AutonomousStatus> {
+  return api("/autonomous/status");
+}
+
+export async function startWatchMode(repo_path: string, interval_minutes: number = 30) {
+  return api("/autonomous/watch/start", {
+    method: "POST",
+    body: JSON.stringify({ repo_path, interval_minutes }),
+  });
+}
+
+export async function stopWatchMode() {
+  return api("/autonomous/watch/stop", { method: "POST" });
+}
+
+export async function startResearch(topics: string[], interval_hours: number = 6) {
+  return api("/autonomous/research/start", {
+    method: "POST",
+    body: JSON.stringify({ topics, interval_hours }),
+  });
+}
+
+export async function stopResearch() {
+  return api("/autonomous/research/stop", { method: "POST" });
+}
+
+export async function startGapAnalysis(project_path: string, interval_hours: number = 24) {
+  return api("/autonomous/gap-analysis/start", {
+    method: "POST",
+    body: JSON.stringify({ project_path, interval_hours }),
+  });
+}
+
+export async function stopGapAnalysis() {
+  return api("/autonomous/gap-analysis/stop", { method: "POST" });
+}
+
+export async function stopAllAutonomous() {
+  return api("/autonomous/stop-all", { method: "POST" });
+}
+
+export async function* streamAutonomousEvents(
+  eventTypes?: string[],
+  limit: number = 50
+): AsyncGenerator<AutonomousEvent, void, undefined> {
+  const params = new URLSearchParams();
+  if (eventTypes && eventTypes.length > 0) {
+    params.set("event_types", eventTypes.join(","));
+  }
+  params.set("limit", limit.toString());
+
+  const res = await fetch(`${API_BASE}/autonomous/events?${params}`, {
+    headers: buildHeaders(false),
+  });
+
+  if (!res.ok) throw new Error(`Event stream error: ${res.status}`);
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") return;
+        try {
+          yield JSON.parse(data) as AutonomousEvent;
+        } catch {
+          // non-JSON data line, skip
+        }
+      }
+    }
+  }
+}
+
+export async function getAutonomousEventHistory(
+  limit: number = 50,
+  event_type?: string
+): Promise<{ events: AutonomousEvent[]; count: number }> {
+  const params = new URLSearchParams();
+  params.set("limit", limit.toString());
+  if (event_type) params.set("event_type", event_type);
+  return api(`/autonomous/events/history?${params}`);
 }
 
 // ── A2A Agents ─────────────────────────────────────────────────────

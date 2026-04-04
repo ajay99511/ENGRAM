@@ -16,6 +16,22 @@ import json
 import logging
 from typing import Any
 
+# System monitor imports (optional - will fail gracefully if psutil not installed)
+try:
+    from packages.tools.system_monitor import (
+        get_cpu_info,
+        get_memory_info,
+        get_disk_info,
+        get_battery_info,
+        get_windows_event_logs,
+        get_system_summary,
+        get_network_info,
+        get_process_list,
+    )
+    SYSTEM_MONITOR_AVAILABLE = True
+except ImportError:
+    SYSTEM_MONITOR_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 TOOL_RISK_READ = "read"
@@ -686,4 +702,192 @@ TOOL_REGISTRY: dict[str, dict[str, Any]] = {
             },
         },
     },
+    # Execution
+    "exec_command": {
+        "fn": exec_command,
+        "category": "execution",
+        "risk": TOOL_RISK_EXEC,
+        "description": "Execute a shell command (sandboxed, requires allowlist or approval)",
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "exec_command",
+                "description": "Execute a shell command in a sandbox.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string"},
+                        "cwd": {"type": ["string", "null"]},
+                        "timeout": {"type": "integer"},
+                    },
+                    "required": ["command"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    },
+    # System Monitoring (optional - requires psutil)
+    **(
+        {
+            "get_cpu_info": {
+                "fn": get_cpu_info,
+                "category": "system",
+                "risk": TOOL_RISK_READ,
+                "description": "Get CPU usage and information",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "get_cpu_info",
+                        "description": "Get CPU usage percentage, core count, and frequency.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+            "get_memory_info": {
+                "fn": get_memory_info,
+                "category": "system",
+                "risk": TOOL_RISK_READ,
+                "description": "Get memory (RAM) usage information",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "get_memory_info",
+                        "description": "Get total, used, and available memory in GB.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+            "get_disk_info": {
+                "fn": get_disk_info,
+                "category": "system",
+                "risk": TOOL_RISK_READ,
+                "description": "Get disk usage for all drives",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "get_disk_info",
+                        "description": "Get disk usage information for all drives.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+            "get_battery_info": {
+                "fn": get_battery_info,
+                "category": "system",
+                "risk": TOOL_RISK_READ,
+                "description": "Get battery status (laptops only)",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "get_battery_info",
+                        "description": "Get battery percentage, time remaining, and charging status.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+            "get_system_summary": {
+                "fn": get_system_summary,
+                "category": "system",
+                "risk": TOOL_RISK_READ,
+                "description": "Get comprehensive system summary (CPU, memory, disk, battery)",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "get_system_summary",
+                        "description": "Get a complete system health summary.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+            "get_windows_event_logs": {
+                "fn": get_windows_event_logs,
+                "category": "system",
+                "risk": TOOL_RISK_READ,
+                "description": "Get Windows Event Log entries (System, Application, Security)",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "get_windows_event_logs",
+                        "description": "Query Windows Event Logs for recent entries.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "log_name": {
+                                    "type": "string",
+                                    "description": "Log name: System, Application, or Security",
+                                },
+                                "max_entries": {"type": "integer"},
+                                "hours_back": {
+                                    "type": "integer",
+                                    "description": "Only return entries from last N hours",
+                                },
+                            },
+                            "required": [],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+            "get_network_info": {
+                "fn": get_network_info,
+                "category": "system",
+                "risk": TOOL_RISK_READ,
+                "description": "Get network interface information",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "get_network_info",
+                        "description": "Get network interfaces and traffic statistics.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+            "get_process_list": {
+                "fn": get_process_list,
+                "category": "system",
+                "risk": TOOL_RISK_READ,
+                "description": "Get list of top processes by CPU or memory usage",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "get_process_list",
+                        "description": "Get top processes sorted by CPU or memory usage.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "limit": {"type": "integer"},
+                                "sort_by": {"type": "string"},
+                            },
+                            "required": [],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+        } if SYSTEM_MONITOR_AVAILABLE else {}
+    ),
 }

@@ -48,5 +48,9 @@ redis>=5.0.0
 python-telegram-bot>=20.0
 httpx>=0.28.0
 
+# === System Monitoring (Phase 2) ===
+psutil>=6.0.0
+pywin32>=306; sys_platform == 'win32'
+
 # === Sandboxing (Phase 8, Optional) ===
 # docker>=7.0.0

@@ -89,7 +89,7 @@ CODE_REVIEWER_CARD = {
     "permissions": {
         "read": ["src/**/*", "lib/**/*", "app/**/*", "packages/**/*"],
         "write": [],
-        "execute": False,
+        "execute": [],
     },
 }
 
@@ -159,7 +159,7 @@ WORKSPACE_ANALYZER_CARD = {
     "permissions": {
         "read": ["**/*"],
         "write": [],
-        "execute": True,  # Needs execute for some analysis commands
+        "execute": [],  # Analysis only, no execution needed
     },
 }
 
@@ -217,7 +217,7 @@ TEST_GENERATOR_CARD = {
     "permissions": {
         "read": ["src/**/*", "lib/**/*", "app/**/*"],
         "write": ["tests/**/*", "test/**/*"],
-        "execute": True,  # To run tests and check coverage
+        "execute": [],  # Test execution handled separately
     },
 }
 
@@ -296,7 +296,7 @@ DEPENDENCY_AUDITOR_CARD = {
             "**/setup.py",
         ],
         "write": [],
-        "execute": True,  # To run pip list, npm outdated, etc.
+        "execute": [],  # Dependency check via package managers
     },
 }
 

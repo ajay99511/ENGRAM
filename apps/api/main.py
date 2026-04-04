@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up PersonalAssist API and Background Scheduler...")
     if not settings.api_access_token:
         logger.warning("API_ACCESS_TOKEN is not set. Protected API endpoints are open to local processes.")
-    
+
     # Initialize chat database (required for chat persistence endpoints)
     try:
         from packages.shared.db import init_db
@@ -45,7 +45,32 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         raise
+
+    # Initialize Telegram Bot Manager
+    try:
+        from packages.messaging.config_store import get_config_store
+        from packages.messaging.bot_manager import get_bot_manager
         
+        store = get_config_store()
+        manager = get_bot_manager()
+        
+        # Load config from file
+        config = store.load()
+        if config and config.get("bot_token"):
+            logger.info("Auto-starting Telegram bot from saved config")
+            # Start bot in background (don't block startup)
+            asyncio.create_task(
+                manager.start(
+                    token=config["bot_token"],
+                    dm_policy=config.get("dm_policy", "pairing")
+                ),
+                name="telegram-bot-autostart"
+            )
+        else:
+            logger.info("No saved Telegram config, bot not auto-started")
+    except Exception as e:
+        logger.error(f"Failed to initialize Telegram bot manager: {e}")
+
     scheduler.start()
     try:
         from packages.automation.jobs import setup_jobs
@@ -62,6 +87,17 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info("Shutting down PersonalAssist API...")
+    
+    # Stop Telegram bot manager
+    try:
+        from packages.messaging.bot_manager import get_bot_manager
+        manager = get_bot_manager()
+        if manager.is_running():
+            logger.info("Stopping Telegram bot...")
+            await manager.stop()
+    except Exception as e:
+        logger.error(f"Error stopping Telegram bot: {e}")
+    
     scheduler.shutdown()
 
 
@@ -115,6 +151,26 @@ app.include_router(workspace_router)
 # ── Job Monitoring Router ─────────────────────────────────────────────
 from apps.api.job_router import router as job_router
 app.include_router(job_router)
+
+# ── Telegram Router (bot management) ──────────────────────────────────
+from apps.api.telegram_router import router as telegram_router
+app.include_router(telegram_router)
+
+# ── System Monitor Router ─────────────────────────────────────────────
+try:
+    from apps.api.system_monitor_router import router as system_monitor_router
+    app.include_router(system_monitor_router)
+    logger.info("System monitor router included")
+except ImportError as exc:
+    logger.warning(f"System monitor router not available: {exc}")
+
+# ── Autonomous Agent Router ───────────────────────────────────────────
+try:
+    from apps.api.autonomous_router import router as autonomous_router
+    app.include_router(autonomous_router)
+    logger.info("Autonomous agent router included")
+except ImportError as exc:
+    logger.warning(f"Autonomous agent router not available: {exc}")
 
 # ── Telegram Webhook Router ───────────────────────────────────────────
 try:
@@ -989,27 +1045,33 @@ async def approve_telegram_user(telegram_id: str):
 
 @app.post("/telegram/test")
 async def send_test_message():
-    """Send test message to verify bot."""
+    """
+    Send test message to verify bot.
+    
+    DEPRECATED: Use /telegram/test from telegram_router instead.
+    This endpoint is kept for backward compatibility.
+    """
     try:
-        # This would actually send a test message via Telegram API
-        # For now, we'll just verify the bot token is set
-        import os
+        from packages.messaging.bot_manager import get_bot_manager
         
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-        if not bot_token:
+        manager = get_bot_manager()
+        
+        if not manager.is_running():
             return {
                 "status": "error",
-                "message": "Bot token not configured",
+                "message": "Bot is not running. Start bot via /telegram/start",
             }
         
         return {
             "status": "success",
-            "message": "Test message would be sent (Telegram API integration required)",
+            "message": "Bot is running. Use /telegram/test for full test message functionality.",
         }
     except Exception as exc:
         logger.error("Send test message error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+# ── Memory Endpoints ─────────────────────────────────────────────────
 
 @app.post("/memory/forget")
 async def memory_forget(req: ForgetRequest):

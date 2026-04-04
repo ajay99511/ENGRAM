@@ -1,9 +1,10 @@
 /**
- * Agents Page - Expanded with A2A tab
- * 
+ * Agents Page - Expanded with A2A and Autonomous tabs
+ *
  * Tabs:
  * - Agent Crew - Run Planner → Researcher → Synthesizer pipeline
  * - A2A Agents - Discover and delegate to Tier 1 agents
+ * - Autonomous - Autonomous agent controls and event stream
  * - Execution Trace - View agent execution trace
  */
 
@@ -18,9 +19,10 @@ import {
     type ModelInfo,
 } from "../lib/api";
 import A2AAgentsTab from "../components/agents/A2AAgentsTab";
+import AutonomousAgentsTab from "../components/agents/AutonomousAgentsTab";
 import AgentTraceViewer from "../components/agents/AgentTraceViewer";
 
-type AgentsTab = 'crew' | 'a2a' | 'trace';
+type AgentsTab = 'crew' | 'a2a' | 'autonomous' | 'trace';
 
 export default function AgentsPage() {
     const [activeTab, setActiveTab] = useState<AgentsTab>('crew');
@@ -141,9 +143,9 @@ export default function AgentsPage() {
     return (
         <div style={{ padding: '20px', height: '100%', overflow: 'auto' }}>
             {/* Tabs */}
-            <div style={{ 
-                display: 'flex', 
-                gap: '8px', 
+            <div style={{
+                display: 'flex',
+                gap: '8px',
                 marginBottom: '24px',
                 borderBottom: '1px solid var(--border)',
                 paddingBottom: '12px',
@@ -161,6 +163,12 @@ export default function AgentsPage() {
                     🤖 A2A Agents
                 </button>
                 <button
+                    className={`btn ${activeTab === 'autonomous' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setActiveTab('autonomous')}
+                >
+                    🔄 Autonomous
+                </button>
+                <button
                     className={`btn ${activeTab === 'trace' ? 'btn-primary' : 'btn-secondary'}`}
                     onClick={() => setActiveTab('trace')}
                 >
@@ -169,6 +177,10 @@ export default function AgentsPage() {
             </div>
 
             {/* Tab Content */}
+            {activeTab === 'autonomous' && (
+                <AutonomousAgentsTab />
+            )}
+
             {activeTab === 'crew' && (
                 <div>
                     <div style={{ marginBottom: '24px' }}>

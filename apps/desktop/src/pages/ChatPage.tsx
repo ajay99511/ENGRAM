@@ -366,72 +366,76 @@ export default function ChatPage() {
                     </div>
                 </div>
 
-                {/* Messages Area */}
-                <div className="chat-messages" style={{ flex: 1 }}>
-                    {messages.length === 0 && (
-                        <div className="empty-state">
-                            <div className="empty-state-icon">💬</div>
-                            <div className="empty-state-title">Start a Conversation</div>
-                            <div className="empty-state-text">
-                                Ask anything — PersonalAssist uses your memories and documents for
-                                context-aware responses.
-                            </div>
-                        </div>
-                    )}
-
-                    {messages.map((msg, i) => (
-                        <div key={i} className={`message ${msg.role}`}>
-                            {msg.role === "assistant" ? (
-                                <div className="markdown-body">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {msg.content}
-                                    </ReactMarkdown>
+                {/* Scroll area */}
+                <div className="chat-scroll-area">
+                    <div className="chat-messages">
+                        {messages.length === 0 && (
+                            <div className="empty-state">
+                                <div className="empty-state-icon">💬</div>
+                                <div className="empty-state-title">Start a Conversation</div>
+                                <div className="empty-state-text">
+                                    Ask anything — PersonalAssist uses your memories and documents for
+                                    context-aware responses.
                                 </div>
-                            ) : (
-                                <div>{msg.content}</div>
-                            )}
-                            <div className="message-meta" style={{ justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                                {msg.role === "assistant" && msg.model && (
-                                    <span className="badge badge-accent">{msg.model}</span>
-                                )}
-                                {msg.memoryUsed && (
-                                    <span className="badge badge-success">🧠 Memory</span>
-                                )}
-                                <span>
-                                    {msg.timestamp.toLocaleTimeString([], {
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                    })}
-                                </span>
-                                {msg.role === "assistant" && (
-                                    <button
-                                        onClick={() => copyToClipboard(msg.content)}
-                                        style={{
-                                            background: 'transparent', border: 'none', color: 'inherit',
-                                            cursor: 'pointer', padding: '0 4px', fontSize: 14,
-                                            opacity: 0.7, transform: 'translateY(-1px)'
-                                        }}
-                                        title="Copy response"
-                                    >
-                                        📋
-                                    </button>
-                                )}
                             </div>
-                        </div>
-                    ))}
+                        )}
 
-                    {loading && !streamMode && (
-                        <div className="typing-indicator">
-                            <span /><span /><span />
-                        </div>
-                    )}
-                    <div ref={messagesEndRef} />
+                        {messages.map((msg, i) => (
+                            <div key={i} className={`message ${msg.role}`} style={{ padding: msg.role === 'assistant' ? '16px 0' : '12px 16px', marginBottom: msg.role === 'user' ? '8px' : 0 }}>
+                                {msg.role === "assistant" ? (
+                                    <div className="markdown-body">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {msg.content}
+                                        </ReactMarkdown>
+                                    </div>
+                                ) : (
+                                    <div>{msg.content}</div>
+                                )}
+                                <div className="message-meta" style={{ justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                                    {msg.role === "assistant" && msg.model && (
+                                        <span className="badge badge-accent">{msg.model}</span>
+                                    )}
+                                    {msg.memoryUsed && (
+                                        <span className="badge badge-success">🧠 Memory</span>
+                                    )}
+                                    <span>
+                                        {msg.timestamp.toLocaleTimeString([], {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                        })}
+                                    </span>
+                                    {msg.role === "assistant" && (
+                                        <button
+                                            onClick={() => copyToClipboard(msg.content)}
+                                            style={{
+                                                background: 'transparent', border: 'none', color: 'inherit',
+                                                cursor: 'pointer', padding: '0 4px', fontSize: 14,
+                                                opacity: 0.7, transform: 'translateY(-1px)'
+                                            }}
+                                            title="Copy response"
+                                        >
+                                            📋
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+
+                        {loading && !streamMode && (
+                            <div className="typing-indicator" style={{ padding: '16px 0' }}>
+                                <span /><span /><span />
+                            </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                    </div>
                 </div>
 
                 {/* Active Context Banner */}
                 {activeContext && (
                     <div style={{
-                        margin: '8px 16px',
+                        margin: '0 auto 8px',
+                        maxWidth: 800,
+                        width: '100%',
                         padding: '8px 12px',
                         background: 'var(--context-banner-bg)',
                         border: '1px solid var(--context-banner-border)',
@@ -461,84 +465,86 @@ export default function ChatPage() {
                 )}
 
                 {/* Input Bar */}
-                <div className="chat-input-bar">
-                    <div className="chat-controls">
-                        <label className="toggle-switch" title="Smart Mode (RAG-enhanced)">
-                            <input
-                                type="checkbox"
-                                checked={smartMode}
-                                onChange={(e) => setSmartMode(e.target.checked)}
+                <div className="chat-input-bar-outer">
+                    <div className="chat-input-bar">
+                        <div className="chat-controls">
+                            <label className="toggle-switch" title="Smart Mode (RAG-enhanced)">
+                                <input
+                                    type="checkbox"
+                                    checked={smartMode}
+                                    onChange={(e) => setSmartMode(e.target.checked)}
+                                />
+                                <span className="toggle-slider" />
+                            </label>
+                            <label style={{ cursor: "pointer" }}>Smart</label>
+
+                            <div style={{ width: 1, height: 16, background: "var(--border)", margin: "0 4px" }} />
+
+                            <label className="toggle-switch" title="Streaming Mode">
+                                <input
+                                    type="checkbox"
+                                    checked={streamMode}
+                                    onChange={(e) => setStreamMode(e.target.checked)}
+                                />
+                                <span className="toggle-slider" />
+                            </label>
+                            <label style={{ cursor: "pointer" }}>Stream</label>
+
+                            <div style={{ flex: 1 }} />
+
+                            <select
+                                className="input"
+                                value={selectedModelId}
+                                onChange={(e) => setSelectedModelId(e.target.value)}
+                                style={{ width: 'auto', minWidth: 180, flex: "none", padding: '6px 28px 6px 10px' }}
+                            >
+                                {localModels.length > 0 && (
+                                    <optgroup label="🖥️ Local Models">
+                                        {localModels.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {Object.entries(remoteGroups).map(([provider, providerModels]) => (
+                                    <optgroup key={provider} label={providerLabel(provider)}>
+                                        {providerModels.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                                        ))}
+                                    </optgroup>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="input-group" style={{ alignItems: 'flex-end', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: '2px' }}>
+                            <textarea
+                                ref={textareaRef}
+                                className="input"
+                                placeholder="Type a message... (Shift+Enter for new line)"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                disabled={loading}
+                                id="chat-input"
+                                rows={1}
+                                style={{
+                                    resize: 'none',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    maxHeight: 150,
+                                    padding: '10px 14px',
+                                    minHeight: 40
+                                }}
                             />
-                            <span className="toggle-slider" />
-                        </label>
-                        <label style={{ cursor: "pointer" }}>Smart</label>
-
-                        <div style={{ width: 1, height: 16, background: "var(--border)", margin: "0 4px" }} />
-
-                        <label className="toggle-switch" title="Streaming Mode">
-                            <input
-                                type="checkbox"
-                                checked={streamMode}
-                                onChange={(e) => setStreamMode(e.target.checked)}
-                            />
-                            <span className="toggle-slider" />
-                        </label>
-                        <label style={{ cursor: "pointer" }}>Stream</label>
-
-                        <div style={{ flex: 1 }} />
-
-                        <select
-                            className="input"
-                            value={selectedModelId}
-                            onChange={(e) => setSelectedModelId(e.target.value)}
-                            style={{ width: 'auto', minWidth: 180, flex: "none", padding: '6px 28px 6px 10px' }}
-                        >
-                            {localModels.length > 0 && (
-                                <optgroup label="🖥️ Local Models">
-                                    {localModels.map(m => (
-                                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                                    ))}
-                                </optgroup>
-                            )}
-                            {Object.entries(remoteGroups).map(([provider, providerModels]) => (
-                                <optgroup key={provider} label={providerLabel(provider)}>
-                                    {providerModels.map(m => (
-                                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                                    ))}
-                                </optgroup>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="input-group" style={{ alignItems: 'flex-end', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', padding: '2px' }}>
-                        <textarea
-                            ref={textareaRef}
-                            className="input"
-                            placeholder="Type a message... (Shift+Enter for new line)"
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            disabled={loading || !input.trim()}
-                            id="chat-input"
-                            rows={1}
-                            style={{
-                                resize: 'none',
-                                background: 'transparent',
-                                border: 'none',
-                                maxHeight: 150,
-                                padding: '10px 14px',
-                                minHeight: 40
-                            }}
-                        />
-                        <button
-                            className="btn btn-primary"
-                            onClick={handleSend}
-                            disabled={loading || !input.trim()}
-                            id="chat-send"
-                            style={{ margin: '6px' }}
-                        >
-                            {loading ? <span className="spinner" /> : "Send"}
-                        </button>
+                            <button
+                                className="btn btn-primary"
+                                onClick={handleSend}
+                                disabled={loading || !input.trim()}
+                                id="chat-send"
+                                style={{ margin: '6px' }}
+                            >
+                                {loading ? <span className="spinner" /> : "Send"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

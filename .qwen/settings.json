@@ -14,7 +14,19 @@
       "Bash(.\\.venv\\scripts\\python.exe *)",
       "Bash(convertfrom-json)",
       "Bash(select-object *)",
-      "Bash(npm audit *)"
+      "Bash(npm audit *)",
+      "Bash(python3 *)",
+      "Bash(py *)",
+      "Bash(c:\\users\\ajaye\\appdata\\local\\programs\\python\\python313\\python.exe *)",
+      "Bash(select-string *)",
+      "Bash(get-process)",
+      "Bash(where-object *)",
+      "Bash(format-table)",
+      "Bash(start *)",
+      "Bash(taskkill *)",
+      "Bash(netstat *)",
+      "Bash(findstr *)",
+      "Bash(npm run *)"
     ]
   },
   "$version": 3
