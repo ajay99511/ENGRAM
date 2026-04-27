@@ -371,11 +371,11 @@ export default function ChatPage() {
                     <div className="chat-messages">
                         {messages.length === 0 && (
                             <div className="empty-state">
-                                <div className="empty-state-icon">💬</div>
-                                <div className="empty-state-title">Start a Conversation</div>
+                                <div className="empty-state-icon">⚡</div>
+                                <div className="empty-state-title">Agent Workbench</div>
                                 <div className="empty-state-text">
-                                    Ask anything — PersonalAssist uses your memories and documents for
-                                    context-aware responses.
+                                    Ready for task execution. I can analyze your workspace, 
+                                    manage long-term memory, and automate complex workflows locally.
                                 </div>
                             </div>
                         )}

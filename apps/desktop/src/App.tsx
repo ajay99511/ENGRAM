@@ -106,11 +106,11 @@ function App() {
       {/* ── Sidebar ── */}
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="sidebar-brand-icon">P</div>
+          <div className="sidebar-brand-icon">W</div>
           <div>
-            <div className="sidebar-brand-text">PersonalAssist</div>
+            <div className="sidebar-brand-text">Agent Workbench</div>
           </div>
-          <span className="sidebar-brand-version">v0.2</span>
+          <span className="sidebar-brand-version">v1.0</span>
         </div>
 
         <nav>

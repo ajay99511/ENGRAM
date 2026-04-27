@@ -81,6 +81,11 @@ class Settings(BaseSettings):
         alias="QDRANT_URL",
         description="Optional full Qdrant URL (overrides host/port when set)",
     )
+    qdrant_path: str = Field(
+        default=os.path.join(os.path.expanduser("~/.personalassist"), "qdrant_data"),
+        alias="QDRANT_PATH",
+        description="Local path for embedded Qdrant (zero-Docker mode). Defaults to data_dir/qdrant_data",
+    )
     qdrant_api_key: str = Field(
         default="",
         alias="QDRANT_API_KEY",

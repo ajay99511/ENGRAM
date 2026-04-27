@@ -73,7 +73,9 @@ _query_cache_lock = threading.Lock()
 
 def _qdrant_client_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
-    if (settings.qdrant_url or "").strip():
+    if (settings.qdrant_path or "").strip():
+        kwargs["path"] = settings.qdrant_path.strip()
+    elif (settings.qdrant_url or "").strip():
         kwargs["url"] = settings.qdrant_url.strip()
     else:
         kwargs["host"] = settings.qdrant_host

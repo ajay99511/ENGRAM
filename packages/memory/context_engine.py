@@ -130,19 +130,19 @@ class ContextEngine:
         budget: int | None = None,
         system_context: str = "",
         include_tool_results: bool = True,
+        include_skills: bool = True,
     ) -> ContextResult:
         """
         Assemble context for LLM call.
-        
-        Args:
-            messages: Message history
-            budget: Override token budget
-            system_context: Optional system context to prepend
-            include_tool_results: Whether to include tool results
-        
-        Returns:
-            ContextResult with assembled messages and metadata
         """
+        # Inject skill schemas if requested
+        if include_skills:
+            from packages.skills import registry
+            skill_schemas = registry.get_all_schemas()
+            if skill_schemas:
+                skill_text = "\n## Available Skills\n" + "\n".join([f"- {s['name']}: {s['description']}" for s in skill_schemas])
+                system_context = (system_context + "\n" + skill_text).strip()
+
         # Calculate budget
         if budget is None:
             budget = self.context_window - self.reserve_tokens

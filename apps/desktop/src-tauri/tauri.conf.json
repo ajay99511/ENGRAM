@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PersonalAssist",
-  "version": "0.1.0",
-  "identifier": "com.personalassist.app",
+  "productName": "Personal Agent Workbench",
+  "version": "1.0.0",
+  "identifier": "com.agentworkbench.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "PersonalAssist",
+        "title": "Personal Agent Workbench",
         "label": "main",
         "width": 1200,
         "height": 800,
