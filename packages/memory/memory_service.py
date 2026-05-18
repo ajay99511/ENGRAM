@@ -214,18 +214,21 @@ async def build_context(
     user_message: str,
     user_id: str = "default",
     k: int = 5,
+    session_id: str | None = None,
 ) -> str:
     """
     Build a compact hybrid context string from:
     - Layer 1: Bootstrap files (AGENTS.md, SOUL.md, USER.md, etc.)
-    - Layer 2-4: Recent session context (JSONL transcripts, pruned)
+    - Layer 2-4: Recent session context (JSONL transcripts, pruned) — activated when session_id is provided
     - Layer 5: local facts + Qdrant documents
-    
+
     Args:
         user_message: Current user message
         user_id: User identifier
         k: Number of results to fetch from vector search
-    
+        session_id: Optional session/thread ID — activates Layers 2-4 (JSONL transcripts,
+                    pruning, compaction) when provided.
+
     Returns:
         Formatted context string, or empty string if no context available
     """
@@ -314,9 +317,52 @@ async def build_context(
     except Exception as exc:
         logger.debug("Layer 5B (Qdrant) unavailable: %s", exc)
 
-    # === LAYER 2-4: Session Context (Recent Conversation) ===
-    # This would be populated from JSONL transcripts if session_id is provided
-    # For now, we rely on the calling code to pass session context via messages
+    # === LAYER 2-4: Session Transcripts (activated when session_id is provided) ===
+    # Layer 2: JSONL transcript — recent turns from this session
+    # Layer 3: Pruned to a token window (last 6 message turns)
+    # Layer 4: Compaction summary injected if present
+    if session_id:
+        try:
+            from packages.memory.jsonl_store import load_transcript
+
+            entries = await load_transcript(session_id)
+            if entries:
+                # Extract message entries only (skip toolResult, session_info, etc.)
+                # and inject any compaction summaries
+                turn_lines: list[str] = []
+                compaction_summary: str = ""
+
+                for entry in entries:
+                    if entry.type == "compaction":
+                        compaction_summary = _clip_text(
+                            entry.content.get("summary", ""), 400
+                        )
+                    elif entry.type == "message":
+                        role = entry.content.get("role", "")
+                        text = entry.content.get("content", "") or entry.content.get("text", "")
+                        if role in ("user", "assistant") and text:
+                            turn_lines.append(f"  [{role}] {_clip_text(str(text), 280)}")
+
+                # Keep only the last 6 turns (3 exchanges) to stay within budget
+                turn_lines = turn_lines[-6:]
+
+                session_parts: list[str] = []
+                if compaction_summary:
+                    session_parts.append(f"[Earlier summary] {compaction_summary}")
+                session_parts.extend(turn_lines)
+
+                if session_parts:
+                    _fit_section(
+                        sections,
+                        "## Recent Conversation (This Session)\n" + "\n".join(session_parts),
+                        total_budget,
+                    )
+                    logger.debug(
+                        "Layers 2-4 (Session): %d turns loaded for session %s",
+                        len(turn_lines), session_id,
+                    )
+        except Exception as exc:
+            logger.debug("Layers 2-4 (Session) unavailable: %s", exc)
     
     # Fallback to legacy memory search if nothing found
     if not sections:

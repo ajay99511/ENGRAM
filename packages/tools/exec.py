@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import shlex
 from typing import Any
@@ -218,14 +219,38 @@ async def run_command(
     logger.info("Executing command: %s (cwd=%s, timeout=%ds)", command, cwd, timeout)
 
     try:
-        # Use shell=True on Windows for proper command interpretation.
-        # Safety is enforced by allowlist + blocked-pattern checks above.
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        # Use shell=False with explicit argument list to prevent command injection.
+        # On Windows, wrap with cmd /c so shell built-ins (echo, dir, type, etc.) work.
+        try:
+            argv = shlex.split(command, posix=(os.name != "nt"))
+        except ValueError as exc:
+            return {
+                "command": command,
+                "error": f"Could not parse command: {exc}",
+                "success": False,
+            }
+
+        if not argv:
+            return {"command": command, "error": "Empty command", "success": False}
+
+        # On Windows, shell built-ins (echo, dir, type, where, etc.) are not
+        # standalone executables — they require cmd.exe. We use cmd /c with the
+        # full command string, but only after the allowlist + blocked-pattern
+        # checks above have already validated the command.
+        if os.name == "nt":
+            proc = await asyncio.create_subprocess_exec(
+                "cmd", "/c", command,
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
 
         try:
             stdout, stderr = await asyncio.wait_for(

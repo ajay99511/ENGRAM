@@ -11,11 +11,11 @@ httpx>=0.28.0
 # === Model Gateway (LLM Abstraction) ===
 litellm>=1.60.0
 
-# === Vector Database ===
+# === Vector Database (embedded mode — no Docker required) ===
 qdrant-client>=1.13.0
 
 # === Memory Layer ===
-# Local memory extraction and storage run on Ollama + Qdrant only.
+# Local memory extraction and storage run on Ollama + Qdrant (embedded) only.
 
 # === PDF Parsing ===
 pymupdf>=1.25.0
@@ -27,27 +27,25 @@ pytest-asyncio>=0.24.0
 # === Agents / Memory ===
 ollama>=0.6.1
 
-# === Podcast Agent ===
-duckduckgo-search>=7.0.0
-edge-tts>=6.1.0
-beautifulsoup4>=4.12.0
-
-# === Podcast Agent (Optional - Premium TTS) ===
-# elevenlabs>=1.0.0
+# === Persistence ===
 sqlalchemy>=2.0.0
 aiosqlite>=0.20.0
 
-# === Background Tasks (Phase 3) ===
-arq==0.25.0
-redis>=5.0.0
-
-# === Messaging (Phase 4) ===
+# === Messaging ===
 python-telegram-bot>=20.0
-httpx>=0.28.0
 
-# === System Monitoring (Phase 2) ===
+# === System Monitoring ===
 psutil>=6.0.0
 pywin32>=306; sys_platform == 'win32'
 
-# === Sandboxing (Phase 8, Optional) ===
-# docker>=7.0.0
+# === Podcast Agent (optional — move to plugin if not needed) ===
+# Uncomment to enable podcast generation:
+# duckduckgo-search>=7.0.0
+# edge-tts>=6.1.0
+# beautifulsoup4>=4.12.0
+# elevenlabs>=1.0.0  # premium TTS
+
+# === Removed dependencies ===
+# arq — replaced by in-process scheduler (packages/automation/scheduler.py)
+# redis — no longer needed (scheduler uses JSON file store)
+# apscheduler — replaced by in-process scheduler

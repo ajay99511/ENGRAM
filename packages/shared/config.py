@@ -270,9 +270,9 @@ class Settings(BaseSettings):
         description="Allow mutating tools (write/exec) in native tool-calling loops",
     )
     agent_native_tool_calling_enabled: bool = Field(
-        default=False,
+        default=True,
         alias="AGENT_NATIVE_TOOL_CALLING_ENABLED",
-        description="Enable native model tool/function calling in the crew pipeline",
+        description="Enable native model tool/function calling in the agent loop",
     )
     agent_legacy_tool_planner_fallback: bool = Field(
         default=True,
@@ -324,9 +324,13 @@ class Settings(BaseSettings):
 
     # --- File System Tooling ---
     fs_allowed_roots: str = Field(
-        default="",
+        default=os.path.expanduser("~"),
         alias="FS_ALLOWED_ROOTS",
-        description="Comma-separated list of allowed filesystem roots (empty = allow all)",
+        description=(
+            "Comma-separated list of allowed filesystem roots. "
+            "Defaults to the user's home directory. "
+            "Set to empty string only if you explicitly want unrestricted access."
+        ),
     )
 
     # --- Podcast Agent ---

@@ -187,29 +187,27 @@ async def compact_session(
 async def memory_flush_turn(session_id: str, model: str = "local") -> None:
     """
     Silent turn to write durable memories before compaction.
-    
+
     Args:
         session_id: Session to flush
         model: Model to use
     """
-    from packages.agents.crew import run_crew
-    
     try:
-        logger.debug(f"Running memory flush for session {session_id}")
-        
-        result = await run_crew(
-            user_message=(
-                "Session nearing compaction. Write any lasting notes to MEMORY.md. "
-                "Reply NO_REPLY if nothing to store."
-            ),
-            user_id=session_id.split("_")[0],  # Extract user_id from session_id
+        logger.debug("Running memory flush for session %s", session_id)
+
+        from packages.agents.react_loop import run_react
+        result = await run_react(
+            "Session nearing compaction. Write any lasting notes to MEMORY.md. "
+            "Reply NO_REPLY if nothing to store.",
+            user_id=session_id.split("_")[0],
             model=model,
+            store_memory=False,
         )
-        
-        logger.debug(f"Memory flush completed: {result.get('response', '')[:100]}")
-    
+
+        logger.debug("Memory flush completed: %s", result.get("response", "")[:100])
+
     except Exception as exc:
-        logger.warning(f"Memory flush failed (non-fatal): {exc}")
+        logger.warning("Memory flush failed (non-fatal): %s", exc)
 
 
 def compute_adaptive_chunk_ratio(avg_message_tokens: float) -> float:

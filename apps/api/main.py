@@ -3,6 +3,7 @@ PersonalAssist — FastAPI Backend
 Routes: health, chat (plain/stream/smart), memory, ingest, agents
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -15,7 +16,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from packages.shared.config import settings
 from packages.model_gateway.client import chat, chat_stream
@@ -27,18 +27,15 @@ _STATIC_DIR = Path(__file__).parent
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── App Setup ────────────────────────────────────────────────────────
-
-scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    logger.info("Starting up PersonalAssist API and Background Scheduler...")
+    # ── Startup ───────────────────────────────────────────────────────
+    logger.info("Starting up PersonalAssist API...")
     if not settings.api_access_token:
-        logger.warning("API_ACCESS_TOKEN is not set. Protected API endpoints are open to local processes.")
+        logger.warning("API_ACCESS_TOKEN is not set. Protected endpoints are open to local processes.")
 
-    # Initialize chat database (required for chat persistence endpoints)
+    # Initialize chat database
     try:
         from packages.shared.db import init_db
         await init_db()
@@ -46,49 +43,47 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize database: {e}")
         raise
 
-    # Initialize Telegram Bot Manager
+    # Start in-process scheduler (zero external dependencies)
+    try:
+        from packages.automation.scheduler import start_scheduler
+        start_scheduler()
+        logger.info("In-process scheduler started")
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
+
+    # Initialize Telegram Bot Manager (non-fatal)
     try:
         from packages.messaging.config_store import get_config_store
         from packages.messaging.bot_manager import get_bot_manager
-        
+
         store = get_config_store()
         manager = get_bot_manager()
-        
-        # Load config from file
         config = store.load()
         if config and config.get("bot_token"):
             logger.info("Auto-starting Telegram bot from saved config")
-            # Start bot in background (don't block startup)
             asyncio.create_task(
                 manager.start(
                     token=config["bot_token"],
-                    dm_policy=config.get("dm_policy", "pairing")
+                    dm_policy=config.get("dm_policy", "pairing"),
                 ),
-                name="telegram-bot-autostart"
+                name="telegram-bot-autostart",
             )
         else:
-            logger.info("No saved Telegram config, bot not auto-started")
+            logger.info("No saved Telegram config — bot not auto-started")
     except Exception as e:
         logger.error(f"Failed to initialize Telegram bot manager: {e}")
 
-    scheduler.start()
-    try:
-        from packages.automation.jobs import setup_jobs
-        setup_jobs(scheduler)
-    except Exception as e:
-        logger.error(f"Failed to setup background jobs: {e}")
-
-    # Register built-in A2A agents so discovery/delegation works after startup.
-    try:
-        from packages.agents.a2a import register_tier1_agents
-        register_tier1_agents()
-    except Exception as e:
-        logger.error(f"Failed to register A2A agents: {e}")
     yield
-    # Shutdown
+
+    # ── Shutdown ──────────────────────────────────────────────────────
     logger.info("Shutting down PersonalAssist API...")
-    
-    # Stop Telegram bot manager
+
+    try:
+        from packages.automation.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception as e:
+        logger.error(f"Error stopping scheduler: {e}")
+
     try:
         from packages.messaging.bot_manager import get_bot_manager
         manager = get_bot_manager()
@@ -97,8 +92,6 @@ async def lifespan(app: FastAPI):
             await manager.stop()
     except Exception as e:
         logger.error(f"Error stopping Telegram bot: {e}")
-    
-    scheduler.shutdown()
 
 
 app = FastAPI(
@@ -163,14 +156,6 @@ try:
     logger.info("System monitor router included")
 except ImportError as exc:
     logger.warning(f"System monitor router not available: {exc}")
-
-# ── Autonomous Agent Router ───────────────────────────────────────────
-try:
-    from apps.api.autonomous_router import router as autonomous_router
-    app.include_router(autonomous_router)
-    logger.info("Autonomous agent router included")
-except ImportError as exc:
-    logger.warning(f"Autonomous agent router not available: {exc}")
 
 # ── Telegram Webhook Router ───────────────────────────────────────────
 try:
@@ -439,7 +424,7 @@ async def chat_smart_stream(req: ChatRequest):
     try:
         from packages.memory.memory_service import build_context
 
-        rag_context = await build_context(req.message, user_id="default")
+        rag_context = await build_context(req.message, user_id="default", session_id=req.thread_id)
         if rag_context:
             context_prefix += "RETRIEVED KNOWLEDGE AND MEMORIES:\n" + rag_context + "\n"
             memory_used = True
@@ -486,8 +471,6 @@ async def chat_smart_stream(req: ChatRequest):
                 increment_turn(user_id="default")
                 if should_consolidate(user_id="default"):
                     logger.info("Turn threshold reached, triggering memory consolidation")
-                    import asyncio
-
                     asyncio.create_task(consolidate_memories(user_id="default", model=req.model))
             except Exception as exc:
                 logger.warning("Auto-extraction failed (non-fatal): %s", exc)
@@ -531,7 +514,7 @@ async def chat_smart(req: ChatRequest):
     try:
         from packages.memory.memory_service import build_context
 
-        rag_context = await build_context(req.message, user_id="default")
+        rag_context = await build_context(req.message, user_id="default", session_id=req.thread_id)
         if rag_context:
             context_prefix += "RETRIEVED KNOWLEDGE AND MEMORIES:\n" + rag_context + "\n"
             memory_used = True
@@ -592,6 +575,161 @@ async def chat_smart(req: ChatRequest):
         "memories_extracted": extraction_result,
         "thread_id": req.thread_id,
     }
+
+
+# ── ReAct Agent Endpoints (single-loop, replaces crew for standard requests) ──
+
+
+@app.post("/chat/react")
+async def chat_react(req: ChatRequest):
+    """
+    ReAct agent loop — single iterative LLM+tool loop.
+
+    Replaces the 3-stage crew pipeline for standard requests.
+    Use /chat/smart for simple RAG-only responses without tool calls.
+    Use /agents/crew for deep multi-stage research.
+    """
+    from packages.shared.db import AsyncSessionLocal
+    from packages.memory.models import ChatMessage
+
+    async with AsyncSessionLocal() as session:
+        thread = await _resolve_or_create_thread(session, req.thread_id, req.message)
+        req.thread_id = thread.id
+        user_msg = ChatMessage(thread_id=req.thread_id, role="user", content=req.message)
+        _touch_thread(thread)
+        session.add(user_msg)
+        await session.commit()
+        history = await _build_thread_messages(session, req.thread_id)
+        # Strip the system message — react_loop builds its own
+        history = [m for m in history if m.get("role") != "system"]
+
+    try:
+        from packages.agents.react_loop import run_react
+        result = await run_react(
+            req.message,
+            user_id="default",
+            model=req.model,
+            history=history,
+            store_memory=True,
+        )
+    except Exception as exc:
+        logger.error("ReAct error: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    response = result["response"]
+    model_used = result["model_used"]
+
+    async with AsyncSessionLocal() as session:
+        thread = await _resolve_or_create_thread(session, req.thread_id, req.message)
+        assistant_msg = ChatMessage(
+            thread_id=req.thread_id,
+            role="assistant",
+            content=response,
+            model_used=model_used,
+        )
+        _touch_thread(thread)
+        session.add(assistant_msg)
+        await session.commit()
+
+    return {
+        "response": response,
+        "model_used": model_used,
+        "thread_id": req.thread_id,
+        "tool_calls_made": result.get("tool_calls_made", 0),
+        "iterations": result.get("iterations", 1),
+    }
+
+
+@app.post("/chat/react/stream")
+async def chat_react_stream(req: ChatRequest):
+    """SSE streaming ReAct agent loop."""
+    from packages.shared.db import AsyncSessionLocal
+    from packages.memory.models import ChatMessage
+
+    async with AsyncSessionLocal() as session:
+        thread = await _resolve_or_create_thread(session, req.thread_id, req.message)
+        req.thread_id = thread.id
+        user_msg = ChatMessage(thread_id=req.thread_id, role="user", content=req.message)
+        _touch_thread(thread)
+        session.add(user_msg)
+        await session.commit()
+        history = await _build_thread_messages(session, req.thread_id)
+        history = [m for m in history if m.get("role") != "system"]
+
+    async def generate():
+        full_response = ""
+        try:
+            yield f"data: {json.dumps({'thread_id': req.thread_id})}\n\n"
+
+            from packages.agents.react_loop import run_react_stream
+            async for chunk in run_react_stream(
+                req.message,
+                user_id="default",
+                model=req.model,
+                history=history,
+                store_memory=True,
+            ):
+                if chunk == "[DONE]":
+                    yield "data: [DONE]\n\n"
+                    break
+                full_response += chunk
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+
+            async with AsyncSessionLocal() as session:
+                thread = await _resolve_or_create_thread(session, req.thread_id, req.message)
+                assistant_msg = ChatMessage(
+                    thread_id=req.thread_id,
+                    role="assistant",
+                    content=full_response,
+                    model_used=settings.resolve_model(req.model),
+                )
+                _touch_thread(thread)
+                session.add(assistant_msg)
+                await session.commit()
+
+        except Exception as exc:
+            logger.error("ReAct stream error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── Scheduler Management Endpoints ───────────────────────────────────
+
+
+@app.get("/scheduler/jobs")
+async def list_scheduled_jobs():
+    """List all registered scheduled jobs."""
+    from packages.automation.scheduler import list_jobs
+    return {"jobs": list_jobs()}
+
+
+@app.post("/scheduler/jobs")
+async def create_scheduled_job(job: dict):
+    """Register or update a scheduled job."""
+    from packages.automation.scheduler import schedule_job
+    try:
+        result = schedule_job(
+            job_id=job["id"],
+            name=job["name"],
+            cron_expr=job["cron_expr"],
+            prompt=job["prompt"],
+            model=job.get("model", "local"),
+            enabled=job.get("enabled", True),
+        )
+        return result
+    except KeyError as exc:
+        raise HTTPException(status_code=422, detail=f"Missing required field: {exc}")
+
+
+@app.delete("/scheduler/jobs/{job_id}")
+async def delete_scheduled_job(job_id: str):
+    """Remove a scheduled job."""
+    from packages.automation.scheduler import remove_job
+    removed = remove_job(job_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": "removed", "id": job_id}
 
 
 # ── Chat Thread Endpoints ────────────────────────────────────────────
@@ -841,104 +979,39 @@ async def search_ltm(query: str, k: int = 10):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-# ── A2A Agent Endpoints ───────────────────────────────────────────────
+# ── A2A Agent Endpoints (removed — use /chat/react for delegation) ──────────
+# The A2A registry has been removed. Use POST /chat/react with a delegation
+# prompt, or POST /agents/run for traced agent execution.
+
+_A2A_REMOVED_MSG = {
+    "detail": "A2A registry removed. Use POST /chat/react or POST /agents/run instead.",
+    "migration": "POST /chat/react with your task as the message body.",
+}
 
 
 @app.get("/agents/a2a/list")
 async def list_a2a_agents():
-    """List all registered A2A agents."""
-    try:
-        from packages.agents.a2a import get_registry
-        
-        registry = get_registry()
-        agents = registry.list_agents()
-        
-        return {
-            "agents": [agent.model_dump() for agent in agents],
-            "count": len(agents),
-        }
-    except Exception as exc:
-        logger.error("List A2A agents error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.get("/agents/a2a/{agent_id}")
-async def get_agent_card(agent_id: str):
-    """Get agent card details."""
-    try:
-        from packages.agents.a2a import get_registry
-        
-        registry = get_registry()
-        agent = registry.get_agent(agent_id)
-        
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        
-        return agent.model_dump()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Get agent error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.post("/agents/a2a/{agent_id}/delegate")
-async def delegate_task(agent_id: str, task: dict):
-    """Delegate task to an A2A agent."""
-    try:
-        from packages.agents.a2a import get_registry
-        
-        registry = get_registry()
-        
-        # Delegate task
-        task_handle = await registry.delegate(agent_id, task)
-        
-        return {
-            "task_id": task_handle.task_id,
-            "agent_id": agent_id,
-            "status": task_handle.status.value,
-        }
-    except Exception as exc:
-        logger.error("Delegate task error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.get("/agents/a2a/task/{task_id}")
-async def get_task_status(task_id: str):
-    """Get task status."""
-    try:
-        from packages.agents.a2a import get_registry
-        
-        registry = get_registry()
-        task_handle = await registry.get_task_status(task_id)
-        
-        if not task_handle:
-            raise HTTPException(status_code=404, detail="Task not found")
-        
-        return task_handle.model_dump()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Get task status error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+    raise HTTPException(status_code=410, detail=_A2A_REMOVED_MSG["detail"])
 
 
 @app.get("/agents/a2a/capabilities")
 async def list_capabilities():
-    """List all available capabilities."""
-    try:
-        from packages.agents.a2a import get_registry
-        
-        registry = get_registry()
-        capabilities = registry.list_capabilities()
-        
-        return {
-            "capabilities": capabilities,
-            "count": len(capabilities),
-        }
-    except Exception as exc:
-        logger.error("List capabilities error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+    raise HTTPException(status_code=410, detail=_A2A_REMOVED_MSG["detail"])
+
+
+@app.get("/agents/a2a/{agent_id}")
+async def get_agent_card(agent_id: str):
+    raise HTTPException(status_code=410, detail=_A2A_REMOVED_MSG["detail"])
+
+
+@app.post("/agents/a2a/{agent_id}/delegate")
+async def delegate_task(agent_id: str, task: dict):
+    raise HTTPException(status_code=410, detail=_A2A_REMOVED_MSG["detail"])
+
+
+@app.get("/agents/a2a/task/{task_id}")
+async def get_task_status(task_id: str):
+    raise HTTPException(status_code=410, detail=_A2A_REMOVED_MSG["detail"])
 
 
 # ── Telegram Endpoints ────────────────────────────────────────────────
@@ -1151,12 +1224,11 @@ async def ingest_endpoint(req: IngestRequest):
 
 @app.post("/agents/run")
 async def agents_run(req: ChatRequest):
-    """Run a simple planner agent (placeholder for CrewAI)."""
+    """Run the ReAct agent loop with trace support."""
     try:
-        from packages.agents.crew import run_crew
+        from packages.agents.react_loop import run_react
         from packages.agents.trace import trace_manager
-        
-        # Inject context into the user message
+
         augmented_message = req.message
         global _ACTIVE_CONTEXT
         if _ACTIVE_CONTEXT:
@@ -1164,14 +1236,14 @@ async def agents_run(req: ChatRequest):
                 f"Active Context (IDE/Terminal):\n{json.dumps(_ACTIVE_CONTEXT, indent=2)}\n\n"
                 f"User Request:\n{req.message}"
             )
-        
-        # We will dispatch to the new lightweight crew orchestration.
+
         run_id = trace_manager.new_run()
-        result = await run_crew(
+        result = await run_react(
             user_message=augmented_message,
             user_id="default",
             model=req.model,
             run_id=run_id,
+            store_memory=True,
         )
         return result
     except Exception as exc:
