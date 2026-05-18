@@ -382,8 +382,20 @@ def infer_model_capabilities(model_id: str) -> dict[str, bool]:
             "requires_reasoning_echo": False,
         }
     if resolved.startswith("ollama/"):
+        # Models known to support tool/function calling via Ollama
+        _TOOL_CAPABLE_OLLAMA = {
+            "llama3.1", "llama3.2", "llama3.3",
+            "qwen2.5", "qwen2.5-coder",
+            "mistral-nemo", "mistral-small",
+            "firefunction-v2",
+            "command-r", "command-r-plus",
+            "hermes3", "nous-hermes2",
+        }
+        # Extract base model name (strip tag like :latest, :8b, etc.)
+        model_name = resolved.split("/", 1)[-1].split(":")[0].lower()
+        tool_capable = any(model_name.startswith(m) for m in _TOOL_CAPABLE_OLLAMA)
         return {
-            "supports_tool_calls": False,
+            "supports_tool_calls": tool_capable,
             "supports_reasoning": False,
             "supports_temperature": True,
             "requires_reasoning_echo": False,

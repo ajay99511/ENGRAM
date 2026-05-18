@@ -56,6 +56,10 @@ Guidelines:
 - Keep tool calls focused — one clear purpose per call.
 - When you have enough information, stop calling tools and write your final response.
 - Be concise and practical. This is a local assistant, not a search engine.
+- You do NOT have live internet access. If a user asks for current news, live prices,
+  or real-time data, say so clearly rather than guessing or presenting stale data as current.
+- Your knowledge has a training cutoff. For fast-moving topics (job market, recent releases,
+  current events), acknowledge the limitation and offer what you do know up to your cutoff.
 """
 
 # ── Constants ────────────────────────────────────────────────────────
